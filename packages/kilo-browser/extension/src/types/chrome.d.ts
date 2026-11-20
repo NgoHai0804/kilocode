@@ -64,6 +64,8 @@ interface ChromeTabsApi {
   get(tabId: number): Promise<ChromeTab>
   query(queryInfo: { active?: boolean; currentWindow?: boolean; lastFocusedWindow?: boolean }): Promise<ChromeTab[]>
   update(tabId: number, updateProperties: { active?: boolean }): Promise<ChromeTab>
+  create(createProperties?: { url?: string; active?: boolean }): Promise<ChromeTab>
+  remove(tabIds: number | number[]): Promise<void>
   onRemoved: ChromeEvent<[tabId: number, removeInfo: { windowId: number; isWindowClosing: boolean }]>
   onActivated: ChromeEvent<[activeInfo: { tabId: number; windowId: number }]>
   onUpdated: ChromeEvent<[tabId: number, changeInfo: { status?: string; url?: string }, tab: ChromeTab]>

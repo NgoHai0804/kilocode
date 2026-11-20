@@ -3,14 +3,25 @@ import type { ToolContext } from "./context"
 import * as status from "./status"
 import * as tabs from "./tabs"
 import * as switchTab from "./switch_tab"
+import * as newTab from "./new_tab"
+import * as closeTab from "./close_tab"
 import * as navigate from "./navigate"
 import * as snapshot from "./snapshot"
 import * as screenshot from "./screenshot"
 import * as console from "./console"
 import * as network from "./network"
+import * as getText from "./get_text"
+import * as getHtml from "./get_html"
+import * as find from "./find"
+import * as attrs from "./attrs"
 import * as click from "./click"
 import * as type from "./type"
 import * as press from "./press"
+import * as hover from "./hover"
+import * as select from "./select"
+import * as fill from "./fill"
+import * as scroll from "./scroll"
+import * as history from "./history"
 import * as reload from "./reload"
 import * as waitFor from "./wait_for"
 import * as evaluate from "./eval"
@@ -22,6 +33,8 @@ export function registerTools(router: Router, ctx: ToolContext) {
   })
   router.register("browser.tabs", (params, signal) => tabs.run(params, ctx, signal), { timeoutMs: 5000 })
   router.register("browser.switch_tab", (params, signal) => switchTab.run(params, ctx, signal), { timeoutMs: 15000 })
+  router.register("browser.new_tab", (params, signal) => newTab.run(params, ctx, signal), { timeoutMs: 15000 })
+  router.register("browser.close_tab", (params, signal) => closeTab.run(params, ctx, signal), { timeoutMs: 5000 })
   router.register("browser.navigate", (params, signal) => navigate.run(params, ctx, signal), { timeoutMs: 15000 })
   router.register("browser.snapshot", (params, signal) => snapshot.run(params, ctx, signal), {
     timeoutMs: 5000,
@@ -36,9 +49,30 @@ export function registerTools(router: Router, ctx: ToolContext) {
     timeoutMs: 5000,
     idempotent: true,
   })
+  router.register("browser.get_text", (params, signal) => getText.run(params, ctx, signal), {
+    timeoutMs: 5000,
+    idempotent: true,
+  })
+  router.register("browser.get_html", (params, signal) => getHtml.run(params, ctx, signal), {
+    timeoutMs: 5000,
+    idempotent: true,
+  })
+  router.register("browser.find", (params, signal) => find.run(params, ctx, signal), {
+    timeoutMs: 5000,
+    idempotent: true,
+  })
+  router.register("browser.attrs", (params, signal) => attrs.run(params, ctx, signal), {
+    timeoutMs: 5000,
+    idempotent: true,
+  })
   router.register("browser.click", (params, signal) => click.run(params, ctx, signal), { timeoutMs: 5000 })
   router.register("browser.type", (params, signal) => type.run(params, ctx, signal), { timeoutMs: 8000 })
   router.register("browser.press", (params, signal) => press.run(params, ctx, signal), { timeoutMs: 3000 })
+  router.register("browser.hover", (params, signal) => hover.run(params, ctx, signal), { timeoutMs: 5000 })
+  router.register("browser.select", (params, signal) => select.run(params, ctx, signal), { timeoutMs: 5000 })
+  router.register("browser.fill", (params, signal) => fill.run(params, ctx, signal), { timeoutMs: 8000 })
+  router.register("browser.scroll", (params, signal) => scroll.run(params, ctx, signal), { timeoutMs: 5000 })
+  router.register("browser.history", (params, signal) => history.run(params, ctx, signal), { timeoutMs: 10000 })
   router.register("browser.reload", (params, signal) => reload.run(params, ctx, signal), { timeoutMs: 15000 })
   router.register("browser.wait_for", (params, signal) => waitFor.run(params, ctx, signal), {
     timeoutMs: 30000,

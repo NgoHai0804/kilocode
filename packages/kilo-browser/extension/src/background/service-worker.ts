@@ -87,6 +87,25 @@ const tabControl: TabControl = {
     const info = await ensureTab(tabId)
     return { id: info.id, url: info.url, title: info.title, active: true, attached: info.attached, attachable: true }
   },
+  async open(url?: string): Promise<TabSummary> {
+    const created = await chrome.tabs.create(url ? { url } : {})
+    if (typeof created.id !== "number") throw noTarget("tab_create_failed")
+    await chrome.tabs.update(created.id, { active: true })
+    suppressAttachUntil = 0
+    const info = await ensureTab(created.id)
+    return {
+      id: info.id,
+      url: info.url,
+      title: info.title,
+      active: true,
+      attached: info.attached,
+      attachable: isAttachable(info.url),
+    }
+  },
+  async close(tabId: number): Promise<void> {
+    await chrome.tabs.remove(tabId)
+    await handleTabRemoved(tabId)
+  },
 }
 
 registerTools(router, {

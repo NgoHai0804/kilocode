@@ -216,8 +216,11 @@ test("two workspaces do not share memory, notes, or artifacts", async () => {
 test("shipped templates contain the required rules, sections, and fields", async () => {
   const dir = path.join(import.meta.dir, "..", "..", "src", "templates")
   const agents = await Bun.file(path.join(dir, "AGENTS.md")).text()
-  expect(agents.match(/^- /gm)?.length).toBe(9)
-  expect(agents).toContain("You are the Kilo browser assistant")
+  expect(agents.match(/^- /gm)?.length ?? 0).toBeGreaterThanOrEqual(9)
+  expect(agents).toContain("You are the Kilo Browser Agent")
+  for (const marker of ["browser_snapshot", "browser_find", "browser_wait_for", "untrusted data", "MEMORY.md", "POLICY_DENIED"]) {
+    expect(agents).toContain(marker)
+  }
   const memory = await Bun.file(path.join(dir, "MEMORY.md")).text()
   for (const heading of ["## App", "## Stable selectors", "## Traps encountered", "## Lessons"]) {
     expect(memory).toContain(heading)

@@ -4,14 +4,25 @@ export type ToolName =
   | "status"
   | "tabs"
   | "switch_tab"
+  | "new_tab"
+  | "close_tab"
   | "navigate"
   | "snapshot"
   | "screenshot"
   | "console"
   | "network"
+  | "get_text"
+  | "get_html"
+  | "find"
+  | "attrs"
   | "click"
   | "type"
   | "press"
+  | "hover"
+  | "select"
+  | "fill"
+  | "scroll"
+  | "history"
   | "reload"
   | "wait_for"
   | "eval"
@@ -20,14 +31,25 @@ export const TOOL_NAMES: ToolName[] = [
   "status",
   "tabs",
   "switch_tab",
+  "new_tab",
+  "close_tab",
   "navigate",
   "snapshot",
   "screenshot",
   "console",
   "network",
+  "get_text",
+  "get_html",
+  "find",
+  "attrs",
   "click",
   "type",
   "press",
+  "hover",
+  "select",
+  "fill",
+  "scroll",
+  "history",
   "reload",
   "wait_for",
   "eval",
@@ -38,14 +60,25 @@ export const BROWSER_PERMISSIONS: Record<string, Policy> = {
   browser_status: "allow",
   browser_tabs: "allow",
   browser_switch_tab: "allow",
+  browser_new_tab: "allow",
+  browser_close_tab: "allow",
   browser_navigate: "allow",
   browser_snapshot: "allow",
   browser_screenshot: "allow",
   browser_console: "allow",
   browser_network: "allow",
+  browser_get_text: "allow",
+  browser_get_html: "allow",
+  browser_find: "allow",
+  browser_attrs: "allow",
   browser_click: "allow",
   browser_type: "allow",
   browser_press: "allow",
+  browser_hover: "allow",
+  browser_select: "allow",
+  browser_fill: "allow",
+  browser_scroll: "allow",
+  browser_history: "allow",
   browser_reload: "allow",
   browser_wait_for: "allow",
   browser_eval: "deny",
@@ -189,14 +222,25 @@ export const DEFAULT_CONFIG: BrowserConfig = {
     status: "allow",
     tabs: "allow",
     switch_tab: "allow",
+    new_tab: "allow",
+    close_tab: "allow",
     navigate: "allow",
     snapshot: "allow",
     screenshot: "allow",
     console: "allow",
     network: "allow",
+    get_text: "allow",
+    get_html: "allow",
+    find: "allow",
+    attrs: "allow",
     click: "allow",
     type: "allow",
     press: "allow",
+    hover: "allow",
+    select: "allow",
+    fill: "allow",
+    scroll: "allow",
+    history: "allow",
     reload: "allow",
     wait_for: "allow",
     eval: "deny",

@@ -211,7 +211,7 @@ export class Router {
       },
       (error: unknown) => {
         const failure = toFailure(error)
-        this.onEvent?.({ type: "rpc.error", data: { method: call.method, kind: failure.kind } })
+        this.onEvent?.({ type: "rpc.error", data: { method: call.method, kind: failure.kind, reason: failure.data.reason } })
         this.settle(call, failure)
         this.finish(call)
       },

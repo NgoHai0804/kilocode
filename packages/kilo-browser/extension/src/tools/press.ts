@@ -3,7 +3,7 @@ import type { ToolContext } from "./context"
 import * as input from "../cdp/domains/input"
 import { invalid, noTarget, throwIfAborted } from "../rpc/failure"
 import { optionalString, requiredString } from "./params"
-import { currentOrigin, focus, hasFocus, inspect, objectId, resolveTarget, scroll } from "./target"
+import { currentOrigin, focus, inspect, objectId, resolveTarget, scroll } from "./target"
 
 export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): Promise<Json> {
   const key = requiredString(params.key, "key")
@@ -19,8 +19,6 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
     const state = await inspect(ctx, id)
     if (state.disabled) throw noTarget("element_disabled")
     if (!(await focus(ctx, id))) throw noTarget("focus_failed")
-  } else if (!(await hasFocus(ctx))) {
-    throw noTarget("no_focus")
   }
 
   throwIfAborted(signal)

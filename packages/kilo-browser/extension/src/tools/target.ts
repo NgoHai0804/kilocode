@@ -152,15 +152,6 @@ export async function select(ctx: ToolContext, id: string) {
   })
 }
 
-export async function hasFocus(ctx: ToolContext): Promise<boolean> {
-  const result = await ctx.session.send("Runtime.evaluate", {
-    expression: "Boolean(document.activeElement && document.activeElement !== document.body && document.activeElement !== document.documentElement)",
-    returnByValue: true,
-    awaitPromise: false,
-  })
-  return record(result.result)?.value === true
-}
-
 export async function center(ctx: ToolContext, target: Target, state: ElementState): Promise<Point> {
   const model = await dom.boxModel(ctx.session, target.backendNodeId).catch((err: unknown) => {
     throw noTarget(`box_model_failed:${errorMessage(err)}`)

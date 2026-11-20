@@ -18,6 +18,8 @@ export type TabSummary = {
 export type TabControl = {
   list: () => Promise<TabSummary[]>
   switchTo: (tabId: number) => Promise<TabSummary>
+  open: (url?: string) => Promise<TabSummary>
+  close: (tabId: number) => Promise<void>
 }
 
 export type ToolContext = {

@@ -75,6 +75,7 @@ export class CdpSession implements CdpConnection {
   private attachedState = false
   private attachedAt = 0
   private wanted = false
+  private lastError?: RpcFailure
 
   constructor(options: SessionOptions) {
     this.api = options.api
@@ -141,9 +142,13 @@ export class CdpSession implements CdpConnection {
       this.currentTabId = 0
       this.wanted = false
       this.attachedState = false
-      if (/another debugger is already attached/i.test(message)) throw devtoolsConflict()
-      throw noTarget(`attach_failed:${message}`)
+      const failure = /another debugger is already attached/i.test(message)
+        ? devtoolsConflict()
+        : noTarget(`attach_failed:${message}`)
+      this.lastError = failure
+      throw failure
     }
+    this.lastError = undefined
     this.attachedState = true
     this.attachedAt = this.now()
     this.listen()
@@ -166,6 +171,7 @@ export class CdpSession implements CdpConnection {
     this.attachedState = false
     this.wanted = false
     this.currentTabId = 0
+    this.lastError = undefined
     this.currentUrl = undefined
     this.currentTitle = undefined
     this.currentFrameId = undefined
@@ -184,7 +190,7 @@ export class CdpSession implements CdpConnection {
   }
 
   async ensure(): Promise<void> {
-    if (!this.wanted || this.currentTabId === 0) throw noTarget()
+    if (!this.wanted || this.currentTabId === 0) throw this.lastError ?? noTarget()
     if (this.attachedState) {
       if (this.now() - this.attachedAt < 1000) return
       const live = await this.targetLive()
@@ -261,7 +267,7 @@ export class CdpSession implements CdpConnection {
   }
 
   private async command(method: string, params: Json = {}): Promise<Json> {
-    if (this.currentTabId === 0) throw noTarget()
+    if (this.currentTabId === 0) throw this.lastError ?? noTarget()
     try {
       const result = await this.api.sendCommand({ tabId: this.currentTabId }, method, params)
       return record(result) ?? {}
