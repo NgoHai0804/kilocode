@@ -21,14 +21,21 @@ const SCRIPT = `
   globalThis.Node = window.Node
 
   const sent = []
-  globalThis.acquireVsCodeApi = () => ({
-    postMessage: (message) => sent.push(message),
+  const host = {
+    kind: "vscode",
+    capabilities: { speech: true },
+    post: (message) => sent.push(message),
+    subscribe: () => () => {},
     getState: () => undefined,
     setState: () => {},
-  })
+    sidebarSide: () => undefined,
+    active: () => false,
+    clipboard: { readText: async () => "", writeText: async () => {} },
+  }
 
   const { createComponent, createSignal } = await import("solid-js")
   const { render } = await import("solid-js/web")
+  const { HostProvider } = await import("./src/host/HostProvider.tsx")
   const { ConfigContext } = await import("./src/context/config.tsx")
   const { ProviderContext } = await import("./src/context/provider.tsx")
   const { SpeechToTextPrewarm } = await import(
@@ -52,13 +59,18 @@ const SCRIPT = `
   const root = document.createElement("div")
   const dispose = render(
     () =>
-      createComponent(ProviderContext.Provider, {
-        value: { authStates: auth },
+      createComponent(HostProvider, {
+        host,
         get children() {
-          return createComponent(ConfigContext.Provider, {
-            value: { config, features },
+          return createComponent(ProviderContext.Provider, {
+            value: { authStates: auth },
             get children() {
-              return createComponent(SpeechToTextPrewarm, {})
+              return createComponent(ConfigContext.Provider, {
+                value: { config, features },
+                get children() {
+                  return createComponent(SpeechToTextPrewarm, {})
+                },
+              })
             },
           })
         },

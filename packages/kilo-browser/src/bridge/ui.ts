@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { isRecord } from "../config/schema"
 import { BRIDGE_VERSION } from "../protocol/version"
-import type { BridgeEvent, KiloBackend } from "./kilo"
+import { sanitizeCustomProviderConfig, validateProviderID, withCustomProviderDeletions } from "@kilo-shared/custom-provider"
+import { fetchOpenAIModels, FetchModelsError, type BridgeEvent, type KiloBackend } from "./kilo"
 import { checkJail, resolveSafe } from "../policy/jail"
 import type { LogEvent } from "../log/jsonl"
 import type { UiMessage } from "./ui-ws"
@@ -16,6 +17,7 @@ import type {
   Part,
   PermissionRequest,
   Provider,
+  ProviderOAuthReadyMessage,
   ProvidersLoadedMessage,
   QuestionRequest,
   SessionInfo,
@@ -58,6 +60,118 @@ const FEATURES: FeatureFlags = {
   backgroundSubagents: false,
   speechToText: false,
 }
+
+/**
+ * Messages the browser surface intentionally does not implement. They belong to
+ * features the browser host disables (Agent Manager, cloud, marketplace, terminal,
+ * sandbox, speech, notifications, indexing, migration, background subagents) or are
+ * fire-and-forget telemetry/tracking. Answering them with `HOST_UNSUPPORTED` spam
+ * the chat with host errors, so they are logged at debug level and dropped.
+ *
+ * Genuinely unexpected types still fall through to `unsupportedType` so a real gap
+ * surfaced during development is never a silent no-op.
+ */
+const IGNORED_TYPES = new Set<string>([
+  // fire-and-forget tracking / view state
+  "telemetry",
+  "sessionActivity",
+  "settingsTabChanged",
+  "streamSessionVisible",
+  "webviewActiveChanged",
+  "webviewFocusChanged",
+  "setChatBoxMessage",
+  "sidebar.openSessions",
+  "toggleCaffeination",
+  // messages that only travel extension → webview
+  "navigate",
+  "workspaceScope",
+  // session actions without a browser host effect
+  "acknowledgeSession",
+  "clearSession",
+  "resumeSession",
+  "syncSession",
+  "unsyncSession",
+  "exportSessionTranscript",
+  "openChanges",
+  // prompt helpers backed by host-only services
+  "enhancePrompt",
+  "memoryOperation",
+  "memoryShow",
+  "toggleAutoApprove",
+  // agent/skill/mcp management (no CLI surface in the browser)
+  "removeAgent",
+  "removeSkill",
+  "removeMcp",
+  "connectMcp",
+  "disconnectMcp",
+  "signInMcp",
+  "cancelMcpSignIn",
+  "resetMcpAuth",
+  "requestMcpAuthState",
+  "requestMcpBundles",
+  // Agent Manager
+  "agentManager.browser.open",
+  "agentManager.createWorktree",
+  "agentManager.requestRepoInfo",
+  "agentManager.setDefaultBaseBranch",
+  "agentManager.closeSession",
+  "agentManager.forkSession",
+  "requestAgentManagerSettings",
+  "requestAgentManagerSettingsBranches",
+  "setAgentManagerDefaultBaseBranch",
+  "openAgentManager",
+  "openAdvancedWorktree",
+  "continueInWorktree",
+  // cloud / account
+  "login",
+  "logout",
+  "cancelLogin",
+  "refreshProfile",
+  "refreshProviderUsage",
+  "requestProviderUsage",
+  "requestCloudSessionData",
+  "requestGitRemoteUrl",
+  "openPRComment",
+  "sessionCostAlertResponse",
+  // marketplace / migration
+  "fetchMarketplaceData",
+  "openMarketplacePanel",
+  "requestMigrationData",
+  "dismissAgentMigrationBanner",
+  // background subagents
+  "requestBackgroundJobs",
+  "promoteBackgroundJob",
+  // sandbox / terminal / pty
+  "requestSandboxStatus",
+  "requestSandboxDefault",
+  "requestTerminalContext",
+  // speech to text
+  "requestSpeechToTextModels",
+  "speechToTextCancel",
+  "speechToTextPrewarm",
+  "speechToTextStop",
+  // session board / remote / experimental
+  "requestSessionBoard",
+  "toggleRemote",
+  "requestRemoteStatus",
+  // notifications
+  "dismissNotification",
+  "requestNotificationSettings",
+  "testNotification",
+  "testOSNotification",
+  // indexing / auto cleanup
+  "setIndexingConsent",
+  "requestIndexingStatus",
+  "requestKiloEmbeddingModels",
+  "runAutoCleanupNow",
+  "requestAutoCleanupState",
+  "stopAutoCleanupNow",
+  // autocomplete / ghost text
+  "requestChatCompletion",
+  "chatCompletionAccepted",
+  // misc host-only
+  "cancelAnacondaDesktopRequest",
+])
 
 const CAPABILITIES: HostCapabilities = {
   chat: true,
@@ -122,6 +236,7 @@ export class UiHost {
   private drafts = new Map<string, { sid: string; exp: number }>()
   private unsupported = new Set<string>()
   private missing = new Set<string>()
+  private storedKeys: Record<string, { key: string; baseURL: string }> = {}
 
   constructor(options: UiHostOptions) {
     this.workspace = path.resolve(options.workspace)
@@ -152,14 +267,18 @@ export class UiHost {
     this.port = port
   }
 
-  ready() {
-    void this.ensureState()
+  async ready() {
+    await this.ensureState()
+    const override = typeof this.state.settings.language === "string" ? this.state.settings.language : undefined
+    const fontSize = typeof this.state.settings.fontSize === "number" ? this.state.settings.fontSize : undefined
     this.send({
       type: "ready",
       serverInfo: { port: this.port, version: BRIDGE_VERSION },
       extensionVersion: BRIDGE_VERSION,
       workspaceDirectory: this.workspace,
       capabilities: CAPABILITIES,
+      ...(override ? { languageOverride: override } : {}),
+      ...(fontSize !== undefined ? { fontSize } : {}),
     })
     this.send({ type: "connectionState", state: "connected" })
     this.send({ type: "extensionDataReady" })
@@ -172,7 +291,7 @@ export class UiHost {
   handle(message: WebviewMessage) {
     void this.dispatch(message).catch((err: unknown) => {
       this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: message.type, error: errorText(err) } })
-      this.send({ type: "error", message: `${message.type}: ${errorText(err)}` })
+      this.send({ type: "error", message: `${message.type}: ${backendError(err, this.kilo.url)}` })
     })
   }
 
@@ -278,7 +397,7 @@ export class UiHost {
   private async dispatch(message: WebviewMessage) {
     switch (message.type) {
       case "webviewReady":
-        this.ready()
+        await this.ready()
         break
       case "loadSessions": {
         const raw = await this.kilo.listSessions?.()
@@ -309,6 +428,22 @@ export class UiHost {
         this.send({ type: "sessionUpdated", session: sessionToWebview(info) })
         break
       }
+      case "forkSession":
+        await this.forkSession(message)
+        break
+      case "revertSession":
+        await this.kilo.revertSession?.({
+          sessionID: message.sessionID,
+          messageID: message.messageID,
+          partID: message.partID,
+        })
+        break
+      case "unrevertSession":
+        await this.kilo.unrevertSession?.({ sessionID: message.sessionID })
+        break
+      case "deleteMessage":
+        await this.deleteMessage(message)
+        break
       case "requestSessionModelUsage": {
         const data = await this.kilo.sessionModelUsage?.(message.sessionID)
         this.send({
@@ -345,6 +480,24 @@ export class UiHost {
         break
       case "requestProviders":
         await this.sendProviders()
+        break
+      case "connectProvider":
+        await this.connectProvider(message)
+        break
+      case "authorizeProviderOAuth":
+        await this.authorizeProviderOAuth(message)
+        break
+      case "completeProviderOAuth":
+        await this.completeProviderOAuth(message)
+        break
+      case "disconnectProvider":
+        await this.disconnectProvider(message)
+        break
+      case "saveCustomProvider":
+        await this.saveCustomProvider(message)
+        break
+      case "fetchCustomProviderModels":
+        await this.fetchCustomProviderModels(message)
         break
       case "requestRecents":
         await this.ensureState()
@@ -420,11 +573,43 @@ export class UiHost {
       case "requestMemory":
         this.send({ type: "memoryLoaded", sessionID: message.sessionID })
         break
+      case "requestFileSearch":
+        // File/session mentions need index-backed search the browser bridge does
+        // not expose yet; answer empty so the menu renders its no-results state
+        // instead of a host error.
+        this.send({ type: "fileSearchResult", paths: [], dir: this.workspace, requestId: message.requestId })
+        break
+      case "requestSessionSearch":
+        this.send({ type: "sessionSearchResult", sessions: [], requestId: message.requestId })
+        break
+      case "requestFilePicker":
+        // The browser has no native file dialog to open; answering with an empty
+        // path means "cancelled" so the mention UI does not spin.
+        this.send({ type: "filePickerResult", path: "", requestId: message.requestId })
+        break
       case "requestGlobalConfig": {
         const globalConfig = await readConfigFile(this.globalPath)
         this.send({ type: "globalConfigLoaded", config: globalConfig as Config })
         break
       }
+      case "setLanguage": {
+        await this.ensureState()
+        this.state.settings.language = message.locale || undefined
+        await this.saveState()
+        this.send({ type: "languageChanged", locale: message.locale })
+        break
+      }
+      case "setTelemetryLevel": {
+        await this.updateConfig({ experimental: { openTelemetry: message.enabled } }, undefined, undefined, undefined)
+        this.send({ type: "telemetryLevelResult", ok: true, enabled: message.enabled })
+        break
+      }
+      case "resetReadNotifications":
+        this.send({ type: "notificationsLoaded", notifications: [], dismissedIds: [] })
+        break
+      case "resetAllSettings":
+        await this.resetSettings()
+        break
       case "requestAutocompleteSettings":
         this.send({
           type: "autocompleteSettingsLoaded",
@@ -486,6 +671,10 @@ export class UiHost {
         this.send({ type: "autoApprovalReasonSettingLoaded", visible: false })
         break
       default:
+        if (IGNORED_TYPES.has(message.type)) {
+          this.log?.({ event: "ui.rpc.ignored", level: "debug", data: { type: message.type } })
+          break
+        }
         this.unsupportedType(message.type)
         break
     }
@@ -653,9 +842,215 @@ export class UiHost {
     await this.saveState()
   }
 
+  private async forkSession(message: Extract<WebviewMessage, { type: "forkSession" }>) {
+    try {
+      const fork = this.kilo.forkSession
+      if (!fork) throw new Error("Fork is unavailable")
+      const raw = await fork({ sessionID: message.sessionId, messageID: message.messageId })
+      if (!isRecord(raw)) throw new Error("Fork failed")
+      const session = sessionToWebview(raw)
+      this.send({ type: "sessionCreated", session })
+      this.send({ type: "sessionForked", sessionID: session.id, forkedFromID: message.sessionId })
+    } catch (err) {
+      this.send({ type: "error", message: errorText(err) || "Failed to fork session" })
+    }
+  }
+
+  private async deleteMessage(message: Extract<WebviewMessage, { type: "deleteMessage" }>) {
+    const result = {
+      type: "deleteMessageResult" as const,
+      sessionID: message.sessionID,
+      messageID: message.messageID,
+      ...(message.requestID !== undefined ? { requestID: message.requestID } : {}),
+    }
+    try {
+      const remove = this.kilo.deleteMessage
+      if (!remove) throw new Error("Delete is unavailable")
+      const removed = await remove({ sessionID: message.sessionID, messageID: message.messageID, queued: true })
+      this.send({ ...result, success: removed === true })
+    } catch (err) {
+      this.send({ type: "error", message: backendError(err, this.kilo.url), sessionID: message.sessionID })
+      this.send({ ...result, success: false })
+    }
+  }
+
+  private async resetSettings() {
+    const globalConfig = await readConfigFile(this.globalPath)
+    await checkJail([this.workspace], this.projectPath)
+    await writeConfigFile(this.projectPath, {})
+    await this.ensureState()
+    this.state.recents = []
+    this.state.favorites = []
+    this.state.variants = {}
+    this.state.modelUsage = {}
+    this.state.settings = {}
+    await this.saveState()
+    const projectConfig = await readConfigFile(this.projectPath)
+    this.send({
+      type: "configUpdated",
+      config: deepMerge(globalConfig, projectConfig) as Config,
+      globalConfig: globalConfig as Config,
+      projectConfig: projectConfig as Config,
+      settings: this.state.settings,
+      features: FEATURES,
+    })
+  }
+
   private async sendProviders() {
     const [list, methods] = await Promise.all([this.kilo.providers?.(), this.kilo.providerAuth?.()])
+    this.retainKeys(list)
     this.send(buildProviders(list, methods))
+  }
+
+  private retainKeys(listRaw: unknown) {
+    const list = isRecord(listRaw) ? listRaw : {}
+    const all = Array.isArray(list.all) ? list.all : []
+    const stored: Record<string, { key: string; baseURL: string }> = {}
+    for (const item of all) {
+      if (!isRecord(item) || typeof item.id !== "string") continue
+      if (typeof item.key !== "string" || item.key.length === 0) continue
+      const options = isRecord(item.options) ? item.options : undefined
+      const baseURL = options && typeof options.baseURL === "string" ? options.baseURL : undefined
+      if (baseURL) stored[item.id] = { key: item.key, baseURL }
+    }
+    this.storedKeys = stored
+  }
+
+  private async refreshProviders() {
+    await this.sendProviders().catch((err: unknown) => {
+      this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "requestProviders", error: errorText(err) } })
+    })
+  }
+
+  private providerError(
+    requestId: string,
+    providerID: string,
+    action: "connect" | "disconnect" | "authorize",
+    err: unknown,
+  ) {
+    this.send({
+      type: "providerActionError",
+      requestId,
+      providerID,
+      action,
+      message: backendError(err, this.kilo.url),
+    })
+  }
+
+  private async connectProvider(message: Extract<WebviewMessage, { type: "connectProvider" }>) {
+    const { requestId, providerID, apiKey, metadata } = message
+    try {
+      const set = this.kilo.authSet
+      if (!set) throw new Error("Provider actions are unavailable")
+      await set({ providerID, auth: metadata ? { type: "api", key: apiKey, metadata } : { type: "api", key: apiKey } })
+      await this.kilo.disposeGlobal?.()
+      await this.refreshProviders()
+      this.send({ type: "providerConnected", requestId, providerID })
+    } catch (err) {
+      this.providerError(requestId, providerID, "connect", err)
+    }
+  }
+
+  private async authorizeProviderOAuth(message: Extract<WebviewMessage, { type: "authorizeProviderOAuth" }>) {
+    const { requestId, providerID, method, inputs } = message
+    try {
+      const authorize = this.kilo.oauthAuthorize
+      if (!authorize) throw new Error("Provider actions are unavailable")
+      const authorization = await authorize({ providerID, method, inputs })
+      if (!authorization) throw new Error("Failed to start provider authorization")
+      this.send({
+        type: "providerOAuthReady",
+        requestId,
+        providerID,
+        authorization: authorization as ProviderOAuthReadyMessage["authorization"],
+      })
+    } catch (err) {
+      this.providerError(requestId, providerID, "authorize", err)
+    }
+  }
+
+  private async completeProviderOAuth(message: Extract<WebviewMessage, { type: "completeProviderOAuth" }>) {
+    const { requestId, providerID, method, code } = message
+    try {
+      const callback = this.kilo.oauthCallback
+      if (!callback) throw new Error("Provider actions are unavailable")
+      await callback({ providerID, method, code })
+      await this.kilo.disposeGlobal?.()
+      await this.refreshProviders()
+      this.send({ type: "providerConnected", requestId, providerID })
+    } catch (err) {
+      this.providerError(requestId, providerID, "connect", err)
+    }
+  }
+
+  private async disconnectProvider(message: Extract<WebviewMessage, { type: "disconnectProvider" }>) {
+    const { requestId, providerID } = message
+    try {
+      const remove = this.kilo.authRemove
+      if (!remove) throw new Error("Provider actions are unavailable")
+      await remove({ providerID })
+      await this.kilo.disposeGlobal?.()
+      await this.refreshProviders()
+      this.send({ type: "providerDisconnected", requestId, providerID })
+    } catch (err) {
+      this.providerError(requestId, providerID, "disconnect", err)
+    }
+  }
+
+  private async saveCustomProvider(message: Extract<WebviewMessage, { type: "saveCustomProvider" }>) {
+    const { requestId, providerID, config, apiKey, apiKeyChanged } = message
+    const id = validateProviderID(providerID)
+    if ("error" in id) {
+      this.providerError(requestId, providerID, "connect", new Error(id.error))
+      return
+    }
+    const clean = sanitizeCustomProviderConfig(config)
+    if ("error" in clean) {
+      this.providerError(requestId, providerID, "connect", new Error(clean.error))
+      return
+    }
+    try {
+      const update = this.kilo.globalConfigUpdate
+      if (!update) throw new Error("Provider actions are unavailable")
+      const global = (await this.kilo.globalConfigGet?.()) as Record<string, unknown> | undefined
+      const disabled = Array.isArray(global?.disabled_providers)
+        ? (global.disabled_providers as string[]).filter((item) => item !== id.value)
+        : undefined
+      const existing = isRecord(global?.provider) ? (global.provider as Record<string, unknown>)[id.value] : undefined
+      const patch = withCustomProviderDeletions(existing, clean.value)
+      await update({ provider: { [id.value]: patch }, ...(disabled ? { disabled_providers: disabled } : {}) })
+      if (apiKeyChanged) {
+        const key = (apiKey ?? "").trim()
+        if (key) await this.kilo.authSet?.({ providerID, auth: { type: "api", key } })
+        else await this.kilo.authRemove?.({ providerID })
+      }
+      await this.kilo.disposeGlobal?.()
+      await this.refreshProviders()
+      this.send({ type: "providerConnected", requestId, providerID })
+    } catch (err) {
+      this.providerError(requestId, providerID, "connect", err)
+    }
+  }
+
+  private async fetchCustomProviderModels(
+    message: Extract<WebviewMessage, { type: "fetchCustomProviderModels" }>,
+  ) {
+    const { requestId, baseURL, apiKey, providerID, headers } = message
+    const stored = providerID ? this.storedKeys[providerID] : undefined
+    const key = stored && normalize(stored.baseURL) === normalize(baseURL) ? stored.key : undefined
+    const resolved = apiKey && apiKey.length > 0 ? apiKey : key
+    try {
+      const models = await fetchOpenAIModels({ baseURL, apiKey: resolved, headers })
+      this.send({ type: "customProviderModelsFetched", requestId, models })
+    } catch (err) {
+      const auth = err instanceof FetchModelsError ? err.auth : undefined
+      this.send({
+        type: "customProviderModelsFetched",
+        requestId,
+        error: errorText(err) || "Failed to fetch models",
+        ...(auth === undefined ? {} : { auth }),
+      })
+    }
   }
 
   private async toggleFavorite(action: "add" | "remove", providerID: string, modelID: string) {
@@ -973,6 +1368,10 @@ function stringMap(raw: unknown): Record<string, string> {
   return out
 }
 
+function normalize(value: string) {
+  return value.trim().replace(/\/+$/, "")
+}
+
 function str(value: unknown) {
   return typeof value === "string" ? value : undefined
 }
@@ -992,4 +1391,13 @@ function closeReason(value: unknown): "completed" | "error" | "interrupted" | "s
 
 function errorText(err: unknown) {
   return err instanceof Error ? err.message : "unexpected error"
+}
+
+/** Rewrite low-level fetch failures into an actionable backend-unreachable hint. */
+function backendError(err: unknown, url: string) {
+  const message = errorText(err)
+  if (/ECONNREFUSED|UNREACHABLE|Unable to connect|ConnectionRefused|connection refused/i.test(message)) {
+    return `Kilo backend unreachable at ${url}. Start it (e.g. \`bun dev serve\`) and retry.`
+  }
+  return message || "Request failed"
 }

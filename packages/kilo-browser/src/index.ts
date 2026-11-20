@@ -8,6 +8,7 @@ export { ApprovalGate, type ApprovalReplyDecision, type ApprovalRequest, type Ap
 export { preflight, type Check, type PreflightResult } from "./bridge/preflight"
 export {
   cleanupArtifacts,
+  ensureIgnore,
   ensureSession,
   ensureTemplates,
   memoryPaths,

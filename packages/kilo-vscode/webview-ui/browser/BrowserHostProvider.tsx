@@ -121,6 +121,45 @@ function chromeApi(): ChromeLike | undefined {
   return (globalThis as unknown as { chrome?: ChromeLike }).chrome
 }
 
+// Decoding runs synchronously on the webview main thread, so bound the input:
+// previewing a multi-megabyte data URL would freeze the panel.
+const MAX_IMAGE_DATA_URL = 8 * 1024 * 1024
+
+/** Decode a `data:` URL into a Blob so the host can preview or download it. */
+function blobFromDataUrl(dataUrl: string): Blob | undefined {
+  if (dataUrl.length > MAX_IMAGE_DATA_URL) {
+    console.warn("[Kilo Browser] image skipped: data URL exceeds", MAX_IMAGE_DATA_URL, "characters")
+    return undefined
+  }
+  const match = /^data:([^;,]*)(;base64)?,([\s\S]*)$/.exec(dataUrl)
+  if (!match) return undefined
+  const mime = match[1] || "application/octet-stream"
+  const body = match[3] ?? ""
+  if (match[2]) {
+    const binary = atob(body)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+    return new Blob([bytes], { type: mime })
+  }
+  return new Blob([decodeURIComponent(body)], { type: mime })
+}
+
+function openBlob(blob: Blob): boolean {
+  const url = URL.createObjectURL(blob)
+  const opened = window.open(url, "_blank", "noopener")
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  return opened !== null
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename || "download"
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 /**
  * Build a `chrome-extension://` URL for a read-only viewer page.
  *
@@ -206,14 +245,42 @@ export const BrowserHostProvider: ParentComponent = (props) => {
   const handledLocally = (message: WebviewMessage): boolean => {
     switch (message.type) {
       case "openSettingsPanel":
-        // Only one UI surface can hold the bridge socket at a time, so the
-        // shared settings view navigates inside this page instead of opening a
-        // second tab that could not connect.
-        dispatch({ type: "navigate", view: "settings", ...(message.tab ? { tab: message.tab } : {}) })
-        return true
+      case "openSettingsTab":
+        // Settings is a full-width surface (like the VS Code editor tab); open
+        // it as its own tab so the two-column layout isn't cramped. The bridge
+        // accepts multiple UI surfaces, so it connects alongside the panel.
+        return openTab(viewerUrl("settings.html", { tab: message.tab }), "openSettingsPanel")
       case "openProfilePanel":
         dispatch({ type: "navigate", view: "profile" })
         return true
+      case "resetAllSettings":
+        // The VS Code host shows a modal warning before wiping settings; the
+        // browser host owns that prompt. Confirming forwards to the bridge.
+        return !window.confirm("Reset all Kilo Code settings to defaults?")
+      case "reload":
+        setTimeout(() => window.location.reload(), 0)
+        return true
+      case "retryConnection":
+        if (retry) {
+          clearTimeout(retry)
+          retry = undefined
+        }
+        attempts = 0
+        if (socket && socket.readyState === WebSocket.OPEN) socket.close()
+        connect()
+        return true
+      case "openContent":
+        return openBlob(new Blob([message.content], { type: "text/plain;charset=utf-8" }))
+      case "previewImage": {
+        const blob = blobFromDataUrl(message.dataUrl)
+        return blob ? openBlob(blob) : false
+      }
+      case "saveImage": {
+        const blob = blobFromDataUrl(message.dataUrl)
+        if (!blob) return false
+        downloadBlob(blob, message.filename)
+        return true
+      }
       case "openFile":
         return openTab(
           viewerUrl("file.html", {

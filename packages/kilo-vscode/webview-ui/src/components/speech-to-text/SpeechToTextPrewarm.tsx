@@ -1,19 +1,20 @@
 import { createEffect, type Component } from "solid-js"
 import { useConfig } from "../../context/config"
 import { useProvider } from "../../context/provider"
-import { getVSCodeAPI } from "../../context/vscode"
+import { useHost } from "../../host/HostProvider"
 import { canUseSpeechToText } from "./availability"
 
 export const SpeechToTextPrewarm: Component = () => {
-  const vscode = getVSCodeAPI()
+  const host = useHost()
   const provider = useProvider()
   const { config, features } = useConfig()
   let prepared = false
 
   createEffect(() => {
-    if (prepared || !canUseSpeechToText(config(), provider.authStates(), features().speechToText)) return
+    if (prepared || !host.capabilities.speech) return
+    if (!canUseSpeechToText(config(), provider.authStates(), features().speechToText)) return
     prepared = true
-    vscode.postMessage({ type: "speechToTextPrewarm" })
+    host.post({ type: "speechToTextPrewarm" })
   })
 
   return null

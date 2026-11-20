@@ -3,6 +3,8 @@ import App from "../src/App"
 import { BrowserHostProvider } from "./BrowserHostProvider"
 import { ConnectionBanner } from "./ConnectionBanner"
 import { PairingScreen } from "./PairingScreen"
+import { TabPicker } from "./TabPicker"
+import { notifyWorker } from "./worker-bridge"
 import {
   BRIDGE_ERROR_EVENT,
   BRIDGE_PAIR_REQUIRED_EVENT,
@@ -19,6 +21,7 @@ import {
   type PairingState,
 } from "./pairing"
 import "./browser-pairing.css"
+import { BROWSER_THEME } from "./vscode-theme"
 
 type ViewType = "newTask" | "history" | "profile" | "settings" | "subAgentViewer"
 
@@ -62,6 +65,12 @@ export const BrowserRoot: Component<BrowserRootProps> = (props) => {
   }
 
   onMount(() => {
+    // The page may already hold a claim from an earlier session (page reload,
+    // extension reload); push it so the service worker can open the tool
+    // channel without asking the user to pair again.
+    const pairPort = readPort(storage)
+    const pairToken = token()
+    if (pairToken && pairPort) notifyWorker({ type: "kilo.pair", token: pairToken, port: pairPort })
     window.addEventListener(BRIDGE_STATE_EVENT, onState)
     window.addEventListener(BRIDGE_PAIR_REQUIRED_EVENT, onPairRequired)
     window.addEventListener(BRIDGE_ERROR_EVENT, onError)
@@ -96,9 +105,10 @@ export const BrowserRoot: Component<BrowserRootProps> = (props) => {
       }
     >
       <ConnectionBanner state={state()} error={error()} onPairAgain={pairAgain} onRetry={retry} />
+      <TabPicker />
       <App
         host={BrowserHostProvider}
-        theme={props.theme ?? "kilo"}
+        theme={props.theme ?? BROWSER_THEME}
         initialView={props.initialView}
         initialSettingsTab={props.initialSettingsTab}
       />

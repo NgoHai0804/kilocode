@@ -1,6 +1,7 @@
 import * as crypto from "crypto"
 import * as vscode from "vscode"
 import { buildCspString } from "./webview-html-utils"
+import { WEBVIEW_BASE_STYLES } from "./shared/webview-base-styles"
 
 function getNonce(): string {
   return crypto.randomBytes(16).toString("hex")
@@ -102,20 +103,7 @@ export function buildWebviewHtml(
         background-clip: padding-box !important;
       }
     }
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      overflow: hidden;
-    }
-    body {
-      background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
-      color: var(--vscode-foreground);
-      font-family: var(--vscode-font-family);
-    }
-    #root {
-      height: 100%;
-    }${opts.extraStyles ? `\n    ${opts.extraStyles}` : ""}
+    ${WEBVIEW_BASE_STYLES}${opts.extraStyles ? `\n    ${opts.extraStyles}` : ""}
   </style>
 </head>
 <body>

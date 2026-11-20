@@ -3,6 +3,7 @@ import { ThemeProvider } from "@kilocode/kilo-ui/theme"
 import { Button } from "@kilocode/kilo-ui/button"
 import { Card, CardDescription, CardTitle } from "@kilocode/kilo-ui/card"
 import { TextField } from "@kilocode/kilo-ui/text-field"
+import { BROWSER_THEME } from "./vscode-theme"
 import {
   claimWithRetry,
   initialPairingState,
@@ -15,6 +16,7 @@ import {
   type PairingStorage,
 } from "./pairing"
 import "./browser-pairing.css"
+import { notifyWorker } from "./worker-bridge"
 
 function extensionId(): string {
   const globals = window as {
@@ -87,6 +89,9 @@ export const PairingScreen: Component<PairingScreenProps> = (props) => {
     setBusy(false)
     if (result.ok) {
       storePairing(props.storage, result.token, result.port)
+      // The UI owns the claim, but only the service worker can open the tool
+      // WebSocket the browser_* tools use; hand it the code and port.
+      notifyWorker({ type: "kilo.pair", code: code(), port: result.port })
       setState((current) => reducePairing(current, { type: "success", port: result.port }))
       props.onPaired(result.token, result.port)
       return
@@ -99,7 +104,7 @@ export const PairingScreen: Component<PairingScreenProps> = (props) => {
   }
 
   return (
-    <ThemeProvider defaultTheme={props.theme ?? "kilo"}>
+      <ThemeProvider defaultTheme={props.theme ?? BROWSER_THEME}>
       <div class="kilo-pairing">
         <Card class="kilo-pairing-card">
           <CardTitle>Connect to the Kilo bridge</CardTitle>

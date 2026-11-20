@@ -8,6 +8,7 @@ import { Router } from "../rpc/router"
 import { registerTools } from "../tools"
 import { BridgeTransport, type ConnectionState } from "../transport/ws"
 import { ApprovalRegistry } from "../approval/registry"
+import { pairRequest } from "./pair-message"
 import { RpcFailure } from "../../../src/protocol/rpc"
 import type { Json, TabInfo } from "../cdp/types"
 import { errorMessage, num, record, text } from "../util/value"
@@ -184,13 +185,24 @@ async function handleMessage(message: unknown): Promise<Json> {
     return { ok: true, approval: approvals.grant(decision, tabId) }
   }
   if (type === "kilo.pair") {
-    const code = text(body.code)
-    if (!code) return { ok: false, error: "code" }
-    const url = text(body.url)
-    const port = num(body.port)
-    if (url) pairUrl = url
-    else if (port !== undefined) pairUrl = `ws://127.0.0.1:${port}/ws`
-    await transport.pair(code)
+    const request = pairRequest({ url: body.url, port: body.port, code: body.code, token: body.token })
+    if (!request.ok) return { ok: false, error: request.error }
+    pairUrl = request.url
+    if ("token" in request) {
+      await store.setPairing({
+        extensionId: chrome.runtime.id,
+        token: request.token,
+        bridgeUrl: request.url,
+        pairedAt: new Date().toISOString(),
+      })
+      await transport.reconnectNow()
+    } else {
+      // A stored pairing wins over the supplied code inside the transport
+      // (it reuses `pairing.bridgeUrl` and sends `bridgeToken`), so a fresh code
+      // would silently reconnect to the old bridge. Drop it first.
+      await store.setPairing(null)
+      await transport.pair(request.code)
+    }
     return { ok: true, state: transport.state }
   }
   if (type === "kilo.keepalive") {

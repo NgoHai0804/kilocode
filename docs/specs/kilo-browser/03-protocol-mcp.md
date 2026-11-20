@@ -80,6 +80,12 @@ Mọi text bắt đầu bằng `[browser:<kind>]`, nêu rõ có retry được h
 
 Timeout của shim = timeout tool + 2000 ms. Khi hết giờ, shim gửi notification `browser.cancel {requestId}` (best effort) và trả `-32005`. Bridge hủy CDP command nếu còn; extension bỏ kết quả đến muộn. Không có retry tự động cho tool có side effect.
 
+#### 8.2.7 Instructions gửi model
+
+Shim trả field `instructions` trong kết quả MCP `initialize` (hằng `SERVER_INSTRUCTIONS` trong `packages/kilo-browser/src/mcp.ts`): agent nhận vai trợ lý trình duyệt tường minh cùng bản đồ ngắn "đọc gì trước, thao tác gì sau". Kilo đọc field này và chèn thành block `<mcp_instructions><server name="browser">...</server></mcp_instructions>` vào system prompt (`packages/opencode/src/session/system.ts:167-180`, ghép ở `packages/opencode/src/session/prompt.ts:1854`). Block chỉ được thêm khi còn ít nhất một tool `browser_*` được bật, nên tắt hết tool thì instructions cũng không xuất hiện.
+
+- Nội dung bao phủ: danh tính trợ lý (điều khiển tab của chính người dùng), tool đọc (`browser_status`, `browser_console`, `browser_network`, `browser_snapshot`), tool thao tác, và quy tắc vòng lặp/an toàn.
+
 ## 10. Protocol
 
 ### 10.1 Framing

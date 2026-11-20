@@ -1,3 +1,5 @@
 extension/dist/
 extension/ui-dist/
 extension/.ui-dist-stage/
+# Local bridge workspace state (runtime token, logs, sessions, generated config)
+.kilo/

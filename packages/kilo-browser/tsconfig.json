@@ -10,7 +10,8 @@
     "noUncheckedIndexedAccess": false,
     "paths": {
       "@kilo-webview": ["../kilo-vscode/webview-ui"],
-      "@kilo-webview/*": ["../kilo-vscode/webview-ui/*"]
+      "@kilo-webview/*": ["../kilo-vscode/webview-ui/*"],
+      "@kilo-shared/*": ["../kilo-vscode/src/shared/*"]
     }
   },
   "include": ["src/**/*", "test/**/*", "extension/**/*"],

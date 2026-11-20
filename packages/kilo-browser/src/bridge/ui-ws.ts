@@ -1,4 +1,4 @@
-﻿import type { Server, ServerWebSocket } from "bun"
+import type { Server, ServerWebSocket } from "bun"
 import type { BrowserConfig } from "../config/schema"
 import { WS_SUBPROTOCOL } from "../protocol/version"
 import { extensionId } from "../policy/origin"
@@ -24,6 +24,24 @@ const RATE_WINDOW_MS = 2000
 const MAX_STRIKES = 10
 const STRIKE_WINDOW_MS = 10_000
 
+// Rate limits and strikes belong to a single socket: one misbehaving surface
+// must not spend another surface's budget or close it.
+type UiPeer = {
+  lastPong: number
+  limiter: RateLimiter
+  strikes: number
+  strikeAt: number
+}
+
+function newPeer(): UiPeer {
+  return {
+    lastPong: Date.now(),
+    limiter: new RateLimiter({ max: RATE_MAX, windowMs: RATE_WINDOW_MS }),
+    strikes: 0,
+    strikeAt: 0,
+  }
+}
+
 export class UiHub {
   handler?: (message: WebviewMessage) => void
   private readonly config: BrowserConfig
@@ -31,12 +49,11 @@ export class UiHub {
   private readonly onEvent?: UiOptions["onEvent"]
   private readonly onOpen?: UiOptions["onOpen"]
   private readonly onClose?: UiOptions["onClose"]
-  private socket?: ServerWebSocket<WsData>
+  // Several UI surfaces can be connected at once (side panel, a settings tab,
+  // file/diff viewers). Messages fan out to every open socket; each entry keeps
+  // that socket's own heartbeat, rate limit, and strike state.
+  private readonly sockets = new Map<ServerWebSocket<WsData>, UiPeer>()
   private heartbeat?: ReturnType<typeof setInterval>
-  private lastPong = 0
-  private limiter = new RateLimiter({ max: RATE_MAX, windowMs: RATE_WINDOW_MS })
-  private strikes = 0
-  private strikeAt = 0
   private id?: string
 
   constructor(options: UiOptions) {
@@ -48,7 +65,7 @@ export class UiHub {
   }
 
   get connected() {
-    return this.socket !== undefined
+    return this.sockets.size > 0
   }
 
   get extension() {
@@ -77,9 +94,8 @@ export class UiHub {
     if (!token || !this.pairing.verify(token)) {
       return new Response("unauthorized", { status: 401 })
     }
-    const rejected = this.socket !== undefined
     const ok = server.upgrade(request, {
-      data: { role: "ui", origin, id, reject: rejected },
+      data: { role: "ui", origin, id },
       headers: { "Sec-WebSocket-Protocol": WS_SUBPROTOCOL },
     })
     if (!ok) return new Response("websocket upgrade failed", { status: 400 })
@@ -87,29 +103,23 @@ export class UiHub {
   }
 
   open(ws: ServerWebSocket<WsData>) {
-    if (ws.data.reject) {
-      ws.close(4001, "ALREADY_CONNECTED")
-      return
-    }
-    this.socket = ws
+    this.sockets.set(ws, newPeer())
     this.id = ws.data.id
-    this.lastPong = Date.now()
-    this.limiter = new RateLimiter({ max: RATE_MAX, windowMs: RATE_WINDOW_MS })
-    this.strikes = 0
-    this.strikeAt = 0
     this.onEvent?.({ type: "ui.port.open", data: { extensionId: ws.data.id, origin: ws.data.origin } })
     this.startHeartbeat()
-    this.onOpen?.()
+    if (this.sockets.size === 1) this.onOpen?.()
   }
 
   message(ws: ServerWebSocket<WsData>, raw: string | Buffer) {
+    const entry = this.sockets.get(ws)
+    if (!entry) return
     const text = typeof raw === "string" ? raw : raw.toString("utf8")
     if (Buffer.byteLength(text) > this.config.bridge.maxPayloadBytes) {
       ws.close(4009, "MESSAGE_TOO_BIG")
       return
     }
-    if (!this.rateAllow()) {
-      this.strike(ws)
+    if (!entry.limiter.allow("ui")) {
+      this.strike(ws, entry)
       return
     }
     let parsed: unknown
@@ -132,66 +142,63 @@ export class UiHub {
   }
 
   close(ws: ServerWebSocket<WsData>, code: number, reason: string) {
-    if (this.socket !== ws) return
-    this.socket = undefined
+    if (!this.sockets.delete(ws)) return
+    this.onEvent?.({ type: "ui.port.close", data: { extensionId: ws.data.id, code, reason } })
+    if (this.sockets.size > 0) return
     this.id = undefined
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = undefined
-    this.onEvent?.({ type: "ui.port.close", data: { extensionId: ws.data.id, code, reason } })
     this.onClose?.()
   }
 
-  pong() {
-    this.lastPong = Date.now()
+  pong(ws: ServerWebSocket<WsData>) {
+    const entry = this.sockets.get(ws)
+    if (entry) entry.lastPong = Date.now()
   }
 
   send(message: UiMessage) {
-    const socket = this.socket
-    if (!socket || socket.readyState !== 1) return
-    socket.send(JSON.stringify({ kind: "ui", message }))
+    if (this.sockets.size === 0) return
+    const payload = JSON.stringify({ kind: "ui", message })
+    for (const socket of this.sockets.keys()) {
+      if (socket.readyState === 1) socket.send(payload)
+    }
   }
 
   disconnect(code: number, reason: string) {
-    const socket = this.socket
-    if (!socket) return
-    socket.close(code, reason)
+    for (const socket of this.sockets.keys()) socket.close(code, reason)
   }
 
   stop() {
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = undefined
-    const socket = this.socket
-    if (socket) socket.close(1001, "BRIDGE_SHUTDOWN")
-    this.socket = undefined
+    for (const socket of this.sockets.keys()) socket.close(1001, "BRIDGE_SHUTDOWN")
+    this.sockets.clear()
     this.id = undefined
   }
 
   private startHeartbeat() {
-    if (this.heartbeat) clearInterval(this.heartbeat)
+    if (this.heartbeat) return
     this.heartbeat = setInterval(() => {
-      const socket = this.socket
-      if (!socket) return
-      if (Date.now() - this.lastPong > this.config.bridge.pongTimeoutMs) {
-        socket.close(4003, "HEARTBEAT_TIMEOUT")
-        return
+      const now = Date.now()
+      for (const [socket, entry] of this.sockets) {
+        if (now - entry.lastPong > this.config.bridge.pongTimeoutMs) {
+          socket.close(4003, "HEARTBEAT_TIMEOUT")
+          continue
+        }
+        socket.ping()
       }
-      socket.ping()
     }, this.config.bridge.heartbeatMs)
   }
 
-  private rateAllow() {
-    return this.limiter.allow("ui")
-  }
-
-  private strike(ws: ServerWebSocket<WsData>) {
+  private strike(ws: ServerWebSocket<WsData>, entry: UiPeer) {
     const now = Date.now()
-    if (now - this.strikeAt > STRIKE_WINDOW_MS) {
-      this.strikes = 0
-      this.strikeAt = now
+    if (now - entry.strikeAt > STRIKE_WINDOW_MS) {
+      entry.strikes = 0
+      entry.strikeAt = now
     }
-    this.strikes += 1
-    this.onEvent?.({ type: "ui.rpc.error", data: { kind: "RATE_LIMIT", strikes: this.strikes } })
-    if (this.strikes >= MAX_STRIKES) {
+    entry.strikes += 1
+    this.onEvent?.({ type: "ui.rpc.error", data: { kind: "RATE_LIMIT", strikes: entry.strikes } })
+    if (entry.strikes >= MAX_STRIKES) {
       ws.close(4008, "RATE_LIMIT")
       return
     }

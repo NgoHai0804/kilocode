@@ -2,7 +2,7 @@
 
 > Thuộc [Kilo Browser Agent spec](./README.md) · Phần này chứa §1–§2, §4–§6.
 
-> Tài liệu thiết kế và đặc tả triển khai cho `packages/kilo-browser` và package UI dùng chung `packages/kilo-webview`. Đây là spec kỹ thuật, không phải hướng dẫn sử dụng. Triển khai 0.3.3 dùng **host seam** trong `kilo-vscode/webview-ui` thay vì tách vật lý `packages/kilo-webview` (US-11 vẫn partial); file/diff viewer đã giao (US-14) qua `/ui/file`, `/ui/diff`, `/ui/url-guard`; xem Changelog 0.3.3 và §22.12.
+> Tài liệu thiết kế và đặc tả triển khai cho `packages/kilo-browser` và package UI dùng chung `packages/kilo-webview`. Đây là spec kỹ thuật, không phải hướng dẫn sử dụng. Triển khai 0.3.4 dùng **host seam** trong `kilo-vscode/webview-ui` thay vì tách vật lý `packages/kilo-webview` (US-11 vẫn partial); file/diff viewer đã giao (US-14) qua `/ui/file`, `/ui/diff`, `/ui/url-guard`; xem Changelog 0.3.3 và §22.12.
 
 ## Bản đồ tài liệu
 
@@ -38,12 +38,13 @@ Trạng thái: draft, phiên bản 0.3.3. Câu hỏi mở và bảng đã giải
 | Trường | Giá trị |
 |---|---|
 | Trạng thái | draft |
-| Phiên bản | 0.3.3 |
+| Phiên bản | 0.3.4 |
 | Ngày | 2026-11-20 |
 | Package | `packages/kilo-browser` (`@kilocode/kilo-browser`) |
 | Owner | `<owner placeholder>` |
 | Decision summary | Xây một bridge chạy local làm sidecar của `kilo serve`, một MCP shim stdio, một Chrome MV3 extension điều khiển trình duyệt qua CDP và tái dùng chat/settings UI qua `kilo-webview`, và một guard plugin phía Kilo. Agent không nằm trong extension; extension không giữ credential của Kilo; mọi quyền ghi/đọc file đi qua jail của bridge. Triển khai 0.3.3: tái dùng UI bằng **host seam** trong `kilo-vscode/webview-ui` (chưa tách `packages/kilo-webview`) — deviation (a); file/diff viewer đã giao (US-14) — xem Changelog 0.3.3. |
 
+Changelog: 0.3.4 (2026-11-20) — thêm danh tính trợ lý trình duyệt cho model: shim trả MCP `initialize.instructions` (`SERVER_INSTRUCTIONS`) và mô tả 12 tool được viết lại; template `.kilo/kilo-browser/AGENTS.md` nêu rõ vai trò và cách đọc/thao tác.
 Changelog: 0.3.3 (2026-11-20) — review pass trên các thay đổi chưa commit; đóng 4 mục CRITICAL cùng các WARNING/SUGGESTION.
 - **security**: `/health` không còn trả `tab`/`kilo.url`; policy origin của extension phản chiếu policy dùng chung và fail-closed khi allowlist rỗng; UI chuyển token WS từ query sang `Sec-WebSocket-Protocol` (`token.<hex>`); CLI không in mật khẩu Kilo; redaction của extension phản chiếu pattern dùng chung; §12.4 CSP khớp manifest.
 - **reliability**: restart `kilo serve` có giám sát retarget client và restart SSE; cache idempotency của router reset khi reconnect; close `4001` retryable; broadcast SSE chỉ ở tool channel; mã lỗi MCP suy ra từ `RPC_ERRORS`.

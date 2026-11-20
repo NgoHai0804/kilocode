@@ -16,6 +16,16 @@ function fakeKilo() {
     reply: [] as Record<string, unknown>[],
     questionReply: [] as Record<string, unknown>[],
     questionReject: [] as Record<string, unknown>[],
+    forkSession: [] as Record<string, unknown>[],
+    revertSession: [] as Record<string, unknown>[],
+    unrevertSession: [] as Record<string, unknown>[],
+    deleteMessage: [] as Record<string, unknown>[],
+    authSet: [] as Record<string, unknown>[],
+    authRemove: [] as Record<string, unknown>[],
+    oauthAuthorize: [] as Record<string, unknown>[],
+    oauthCallback: [] as Record<string, unknown>[],
+    globalConfig: [] as Record<string, unknown>[],
+    disposeGlobal: 0,
   }
   let emit: ((event: BridgeEvent) => void) | undefined
   const backend = {
@@ -33,6 +43,23 @@ function fakeKilo() {
     abort: async () => undefined,
     getMessages: async () => [],
     listSessions: async () => [],
+    forkSession: async (input: unknown) => {
+      calls.forkSession.push(input as Record<string, unknown>)
+      const now = Date.now()
+      return { id: "ses_fork", title: "Forked", time: { created: now, updated: now } }
+    },
+    revertSession: async (input: unknown) => {
+      calls.revertSession.push(input as Record<string, unknown>)
+      return true
+    },
+    unrevertSession: async (input: unknown) => {
+      calls.unrevertSession.push(input as Record<string, unknown>)
+      return true
+    },
+    deleteMessage: async (input: unknown) => {
+      calls.deleteMessage.push(input as Record<string, unknown>)
+      return true
+    },
     reply: async (input: unknown) => {
       calls.reply.push(input as Record<string, unknown>)
       return {}
@@ -47,6 +74,29 @@ function fakeKilo() {
     },
     providers: async () => ({ all: [], connected: [], default: {}, failures: [] }),
     providerAuth: async () => ({}),
+    authSet: async (input: unknown) => {
+      calls.authSet.push(input as Record<string, unknown>)
+    },
+    authRemove: async (input: unknown) => {
+      calls.authRemove.push(input as Record<string, unknown>)
+    },
+    oauthAuthorize: async (input: unknown) => {
+      calls.oauthAuthorize.push(input as Record<string, unknown>)
+      return { url: "https://example.com/oauth", method: "code", instructions: "Enter the code" }
+    },
+    oauthCallback: async (input: unknown) => {
+      calls.oauthCallback.push(input as Record<string, unknown>)
+      return true
+    },
+    disposeGlobal: async () => {
+      calls.disposeGlobal += 1
+      return true
+    },
+    globalConfigGet: async () => ({ disabled_providers: [] }),
+    globalConfigUpdate: async (config: unknown) => {
+      calls.globalConfig.push(config as Record<string, unknown>)
+      return {}
+    },
     startEvents: (handler: (event: BridgeEvent) => void) => {
       emit = handler
       return () => {
@@ -147,7 +197,7 @@ async function makeBridge(options: { workspace: string; home: string; token: str
 }
 
 test(
-  "verifies token, allows one UI client, and reports ready capabilities",
+  "verifies token, allows multiple UI surfaces, and reports ready capabilities",
   async () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
     const home = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-home-"))
@@ -193,12 +243,16 @@ test(
       await firstInbox.next((message) => message.type === "connectionState")
 
       second = connectUi(bridge.wsUrl, bridge.token())
-      const secondCode = await new Promise<number>((resolve) => {
-        second!.addEventListener("close", (event) => resolve(event.code))
-        second!.addEventListener("error", () => resolve(4001))
-        setTimeout(() => resolve(-1), 2000)
-      })
-      expect(secondCode).toBe(4001)
+      const secondInbox = inbox(second)
+      await open(second)
+      second.send(JSON.stringify({ kind: "ui", id: "2", message: { type: "webviewReady" } }))
+      const secondReady = await secondInbox.next((message) => message.type === "ready")
+      expect(secondReady.capabilities).toBeDefined()
+
+      // Host pushes fan out to every connected surface.
+      first.send(JSON.stringify({ kind: "ui", id: "3", message: { type: "requestProviders" } }))
+      await firstInbox.next((message) => message.type === "providersLoaded")
+      await secondInbox.next((message) => message.type === "providersLoaded")
     } finally {
       first?.close()
       second?.close()
@@ -324,6 +378,170 @@ test(
 )
 
 test(
+  "wires provider connect, oauth, disconnect, and custom provider flows to the backend",
+  async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
+    const home = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-home-"))
+    const { bridge, fake } = await makeBridge({ workspace, home, token: "g".repeat(64) })
+    const models = Bun.serve({ port: 0, fetch: () => Response.json({ data: [{ id: "m1", name: "M1" }] }) })
+    let socket: WebSocket | undefined
+    const send = (id: string, message: Record<string, unknown>) =>
+      socket!.send(JSON.stringify({ kind: "ui", id, message }))
+    try {
+      await bridge.start()
+      socket = connectUi(bridge.wsUrl, bridge.token())
+      const box = inbox(socket)
+      await open(socket)
+      await box.next((message) => message.type === "ready")
+
+      send("p1", { type: "connectProvider", requestId: "r1", providerID: "openai", apiKey: "sk-test" })
+      const connected = await box.next((message) => message.type === "providerConnected")
+      expect(connected.requestId).toBe("r1")
+      expect(connected.providerID).toBe("openai")
+      expect(fake.calls.authSet[0]).toEqual({ providerID: "openai", auth: { type: "api", key: "sk-test" } })
+      expect(fake.calls.disposeGlobal).toBe(1)
+      await box.next((message) => message.type === "providersLoaded")
+
+      send("p2", { type: "authorizeProviderOAuth", requestId: "r2", providerID: "openai", method: 1 })
+      const ready = await box.next((message) => message.type === "providerOAuthReady")
+      expect(ready.requestId).toBe("r2")
+      expect((ready.authorization as Record<string, unknown>).url).toBe("https://example.com/oauth")
+
+      send("p3", { type: "completeProviderOAuth", requestId: "r3", providerID: "openai", method: 1, code: "abc" })
+      const completed = await box.next((message) => message.type === "providerConnected" && message.requestId === "r3")
+      expect(completed.providerID).toBe("openai")
+      expect(fake.calls.oauthCallback[0]).toEqual({ providerID: "openai", method: 1, code: "abc" })
+
+      send("p4", { type: "disconnectProvider", requestId: "r4", providerID: "openai" })
+      const disconnected = await box.next((message) => message.type === "providerDisconnected")
+      expect(disconnected.requestId).toBe("r4")
+      expect(fake.calls.authRemove[0]).toEqual({ providerID: "openai" })
+
+      send("p5", {
+        type: "saveCustomProvider",
+        requestId: "r5",
+        providerID: "my-custom",
+        config: {
+          npm: "@ai-sdk/openai-compatible",
+          name: "My",
+          options: { baseURL: "https://x" },
+          models: { m1: { name: "M1" } },
+        },
+        apiKey: "k",
+        apiKeyChanged: true,
+      })
+      await box.next((message) => message.type === "providerConnected" && message.requestId === "r5")
+      expect(fake.calls.globalConfig[0]).toEqual({
+        provider: {
+          "my-custom": {
+            npm: "@ai-sdk/openai-compatible",
+            name: "My",
+            options: { baseURL: "https://x" },
+            models: { m1: { name: "M1" } },
+          },
+        },
+        disabled_providers: [],
+      })
+
+      send("p6", { type: "fetchCustomProviderModels", requestId: "r6", baseURL: `http://127.0.0.1:${models.port}`, apiKey: "k" })
+      const fetched = await box.next((message) => message.type === "customProviderModelsFetched")
+      expect(fetched.requestId).toBe("r6")
+      expect(fetched.models).toEqual([{ id: "m1", name: "M1" }])
+    } finally {
+      socket?.close()
+      models.stop(true)
+      await bridge.stop()
+      await rm(workspace, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  },
+  15000,
+)
+
+test(
+  "forks a session through the backend and notifies the webview",
+  async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
+    const home = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-home-"))
+    const { bridge, fake } = await makeBridge({ workspace, home, token: "i".repeat(64) })
+    let socket: WebSocket | undefined
+    try {
+      await bridge.start()
+      socket = connectUi(bridge.wsUrl, bridge.token())
+      const box = inbox(socket)
+      await open(socket)
+      await box.next((message) => message.type === "ready")
+
+      socket.send(
+        JSON.stringify({ kind: "ui", id: "fk", message: { type: "forkSession", sessionId: "ses_1", messageId: "msg_1" } }),
+      )
+      const forked = await box.next((message) => message.type === "sessionForked")
+      expect(forked.sessionID).toBe("ses_fork")
+      expect(forked.forkedFromID).toBe("ses_1")
+      expect(fake.calls.forkSession[0]).toEqual({ sessionID: "ses_1", messageID: "msg_1" })
+    } finally {
+      socket?.close()
+      await bridge.stop()
+      await rm(workspace, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  },
+  15000,
+)
+
+test(
+  "handles language, telemetry, and settings reset host messages",
+  async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
+    const home = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-home-"))
+    await mkdir(path.join(workspace, ".kilo"), { recursive: true })
+    await Bun.write(path.join(workspace, ".kilo", "kilo.json"), JSON.stringify({ model: "kilo/auto" }, null, 2))
+    const { bridge } = await makeBridge({ workspace, home, token: "h".repeat(64) })
+    let socket: WebSocket | undefined
+    const send = (id: string, message: Record<string, unknown>) =>
+      socket!.send(JSON.stringify({ kind: "ui", id, message }))
+    try {
+      await bridge.start()
+      socket = connectUi(bridge.wsUrl, bridge.token())
+      const box = inbox(socket)
+      await open(socket)
+      await box.next((message) => message.type === "ready")
+
+      send("s1", { type: "setLanguage", locale: "de" })
+      const changed = await box.next((message) => message.type === "languageChanged")
+      expect(changed.locale).toBe("de")
+
+      send("s2", { type: "setTelemetryLevel", enabled: false })
+      const telemetry = await box.next((message) => message.type === "telemetryLevelResult")
+      expect(telemetry).toEqual({ type: "telemetryLevelResult", ok: true, enabled: false })
+      await box.next((message) => message.type === "configUpdated")
+      const globalFile = JSON.parse(await Bun.file(path.join(home, ".config", "kilo", "kilo.json")).text()) as Record<string, unknown>
+      expect((globalFile.experimental as Record<string, unknown>).openTelemetry).toBe(false)
+
+      send("s3", { type: "resetReadNotifications" })
+      const notifications = await box.next((message) => message.type === "notificationsLoaded")
+      expect(notifications.dismissedIds).toEqual([])
+
+      send("s4", { type: "resetAllSettings" })
+      const reset = await box.next((message) => message.type === "configUpdated")
+      const expectedGlobal = { experimental: { openTelemetry: false } }
+      expect(reset.globalConfig).toEqual(expectedGlobal)
+      expect(reset.config).toEqual(expectedGlobal)
+      const preserved = JSON.parse(await Bun.file(path.join(home, ".config", "kilo", "kilo.json")).text()) as Record<string, unknown>
+      expect(preserved).toEqual(expectedGlobal)
+      const projectFile = JSON.parse(await Bun.file(path.join(workspace, ".kilo", "kilo.json")).text()) as Record<string, unknown>
+      expect(projectFile).toEqual({})
+    } finally {
+      socket?.close()
+      await bridge.stop()
+      await rm(workspace, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  },
+  15000,
+)
+
+test(
   "requestConfig merges global and project files and updateConfig preserves unrelated keys",
   async () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
@@ -396,6 +614,53 @@ test(
 )
 
 test(
+  "wires session edit actions and silently drops intentionally-absent messages",
+  async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
+    const home = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-home-"))
+    const { bridge, fake } = await makeBridge({ workspace, home, token: "j".repeat(64) })
+    let socket: WebSocket | undefined
+    const send = (id: string, message: Record<string, unknown>) =>
+      socket!.send(JSON.stringify({ kind: "ui", id, message }))
+    try {
+      await bridge.start()
+      socket = connectUi(bridge.wsUrl, bridge.token())
+      const box = inbox(socket)
+      await open(socket)
+      await box.next((message) => message.type === "ready")
+
+      // Intentionally-absent message: logs only, never a HOST_UNSUPPORTED error.
+      send("x1", { type: "telemetry" })
+
+      send("x2", { type: "revertSession", sessionID: "ses_1", messageID: "msg_1" })
+      send("x3", { type: "unrevertSession", sessionID: "ses_1" })
+      send("x4", { type: "deleteMessage", sessionID: "ses_1", messageID: "msg_2", requestID: "req_1" })
+      const deleted = await box.next((message) => message.type === "deleteMessageResult")
+      expect(deleted.success).toBe(true)
+      expect(deleted.requestID).toBe("req_1")
+      expect(fake.calls.deleteMessage[0]).toEqual({ sessionID: "ses_1", messageID: "msg_2", queued: true })
+
+      send("x5", { type: "requestFilePicker", requestId: "pick_1" })
+      const picker = await box.next((message) => message.type === "filePickerResult")
+      expect(picker).toEqual({ type: "filePickerResult", path: "", requestId: "pick_1" })
+
+      for (let i = 0; i < 100 && (fake.calls.revertSession.length < 1 || fake.calls.unrevertSession.length < 1); i += 1) {
+        await Bun.sleep(10)
+      }
+      expect(fake.calls.revertSession[0]?.sessionID).toBe("ses_1")
+      expect(fake.calls.revertSession[0]?.messageID).toBe("msg_1")
+      expect(fake.calls.unrevertSession[0]?.sessionID).toBe("ses_1")
+    } finally {
+      socket?.close()
+      await bridge.stop()
+      await rm(workspace, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  },
+  15000,
+)
+
+test(
   "answers HOST_UNSUPPORTED without crashing and validates files through the jail",
   async () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
@@ -411,7 +676,7 @@ test(
       await open(socket)
       await box.next((message) => message.type === "ready")
 
-      socket.send(JSON.stringify({ kind: "ui", id: "9", message: { type: "clearSession" } }))
+      socket.send(JSON.stringify({ kind: "ui", id: "9", message: { type: "totallyUnknownMessage" } }))
       const unsupported = await box.next((message) => message.type === "error")
       expect(unsupported.code).toBe("HOST_UNSUPPORTED")
 
@@ -435,6 +700,94 @@ test(
       expect((again.capabilities as Record<string, boolean>).chat).toBe(true)
     } finally {
       socket?.close()
+      await bridge.stop()
+      await rm(workspace, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  },
+  15000,
+)
+
+test(
+  "rejects a custom provider config with a disallowed npm package",
+  async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
+    const home = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-home-"))
+    const { bridge, fake } = await makeBridge({ workspace, home, token: "k".repeat(64) })
+    let socket: WebSocket | undefined
+    const send = (id: string, message: Record<string, unknown>) =>
+      socket!.send(JSON.stringify({ kind: "ui", id, message }))
+    try {
+      await bridge.start()
+      socket = connectUi(bridge.wsUrl, bridge.token())
+      const box = inbox(socket)
+      await open(socket)
+      await box.next((message) => message.type === "ready")
+
+      send("d1", {
+        type: "saveCustomProvider",
+        requestId: "r-bad",
+        providerID: "evil",
+        config: {
+          npm: "evil-pkg",
+          name: "Evil",
+          options: { baseURL: "https://x" },
+          models: { m1: { name: "M1" } },
+        },
+      })
+      const error = await box.next((message) => message.type === "providerActionError")
+      expect(error.requestId).toBe("r-bad")
+      expect(error.providerID).toBe("evil")
+      expect(fake.calls.globalConfig.length).toBe(0)
+    } finally {
+      socket?.close()
+      await bridge.stop()
+      await rm(workspace, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  },
+  15000,
+)
+
+test(
+  "rate limits one UI surface without closing another",
+  async () => {
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-ui-"))
+    const home = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-home-"))
+    const { bridge } = await makeBridge({ workspace, home, token: "l".repeat(64) })
+    let noisy: WebSocket | undefined
+    let quiet: WebSocket | undefined
+    try {
+      await bridge.start()
+
+      noisy = connectUi(bridge.wsUrl, bridge.token())
+      const noisyBox = inbox(noisy)
+      await open(noisy)
+      await noisyBox.next((message) => message.type === "ready")
+
+      quiet = connectUi(bridge.wsUrl, bridge.token())
+      const quietBox = inbox(quiet)
+      await open(quiet)
+      quiet.send(JSON.stringify({ kind: "ui", id: "quiet", message: { type: "webviewReady" } }))
+      await quietBox.next((message) => message.type === "ready")
+
+      for (let index = 0; index < 200; index += 1) {
+        noisy.send(JSON.stringify({ kind: "ui", id: `flood-${index}`, message: { type: "webviewReady" } }))
+      }
+      const noisyClose = new Promise<number>((resolve) => {
+        noisy!.addEventListener("close", (event) => resolve(event.code))
+        setTimeout(() => resolve(-2), 3000)
+      })
+      expect(await noisyClose).toBe(4008)
+
+      // The quiet surface keeps its own budget, so it is neither limited nor closed.
+      expect(quiet.readyState).toBe(WebSocket.OPEN)
+      quiet.send(JSON.stringify({ kind: "ui", id: "after-flood", message: { type: "webviewReady" } }))
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      expect(quiet.readyState).toBe(WebSocket.OPEN)
+    } finally {
+      noisy?.close()
+      quiet?.close()
       await bridge.stop()
       await rm(workspace, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

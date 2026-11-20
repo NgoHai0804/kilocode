@@ -3,7 +3,15 @@ import path from "node:path"
 import os from "node:os"
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises"
 import { ArtifactStore } from "../../src/artifacts/store"
-import { cleanupArtifacts, ensureSession, ensureTemplates, memoryPaths, seed, writeNote } from "../../src/bridge/memory"
+import {
+  cleanupArtifacts,
+  ensureIgnore,
+  ensureSession,
+  ensureTemplates,
+  memoryPaths,
+  seed,
+  writeNote,
+} from "../../src/bridge/memory"
 import { generateKiloConfig, INSTRUCTIONS_ENTRY } from "../../src/config/generate"
 
 async function workspace() {
@@ -38,6 +46,41 @@ test("seed is an alias for ensureTemplates and stays idempotent", async () => {
   try {
     expect((await seed(ws)).created.length).toBe(2)
     expect((await seed(ws)).created.length).toBe(0)
+  } finally {
+    await rm(ws, { recursive: true, force: true })
+  }
+})
+
+test("seeding ignores the generated bridge state and keeps existing rules", async () => {
+  const ws = await workspace()
+  try {
+    const file = path.join(ws, ".kilo", ".gitignore")
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, "node_modules\nagent-manager.json\n")
+
+    await ensureTemplates(ws)
+    const text = await Bun.file(file).text()
+    const lines = text.split(/\r?\n/).map((line) => line.trim())
+    expect(lines).toContain("node_modules")
+    expect(lines).toContain("agent-manager.json")
+    expect(lines).toContain("kilo-browser/")
+    expect(lines).toContain("plugins/kilo-browser-guard.ts")
+
+    expect(await ensureIgnore(ws)).toBe(false)
+    expect(await Bun.file(file).text()).toBe(text)
+  } finally {
+    await rm(ws, { recursive: true, force: true })
+  }
+})
+
+test("seeding writes the ignore file when the workspace has none", async () => {
+  const ws = await workspace()
+  try {
+    await seed(ws)
+    const text = await Bun.file(path.join(ws, ".kilo", ".gitignore")).text()
+    expect(text.endsWith("\n")).toBe(true)
+    expect(text).toContain("kilo-browser/")
+    expect(text).not.toContain("node_modules")
   } finally {
     await rm(ws, { recursive: true, force: true })
   }
@@ -173,7 +216,8 @@ test("two workspaces do not share memory, notes, or artifacts", async () => {
 test("shipped templates contain the required rules, sections, and fields", async () => {
   const dir = path.join(import.meta.dir, "..", "..", "src", "templates")
   const agents = await Bun.file(path.join(dir, "AGENTS.md")).text()
-  expect(agents.match(/^- /gm)?.length).toBe(7)
+  expect(agents.match(/^- /gm)?.length).toBe(9)
+  expect(agents).toContain("You are the Kilo browser assistant")
   const memory = await Bun.file(path.join(dir, "MEMORY.md")).text()
   for (const heading of ["## App", "## Stable selectors", "## Traps encountered", "## Lessons"]) {
     expect(memory).toContain(heading)

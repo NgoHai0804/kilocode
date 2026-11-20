@@ -24,6 +24,19 @@ export type AlwaysRulesInput = {
   deniedAlways: string[]
 }
 
+export type AuthProviderInput = {
+  providerID: string
+  auth: unknown
+}
+
+export type OAuthInput = {
+  providerID: string
+  method: number
+  inputs?: Record<string, string>
+  code?: string
+  directory?: string
+}
+
 export type BridgeEvent = {
   channel: "ui" | "tool"
   type: string
@@ -43,6 +56,10 @@ export type KiloBackend = {
   listSessions?: () => Promise<unknown>
   renameSession?: (input: { sessionID: string; title: string }) => Promise<unknown>
   deleteSession?: (input: { sessionID: string }) => Promise<unknown>
+  forkSession?: (input: { sessionID: string; messageID?: string; directory?: string }) => Promise<unknown>
+  revertSession?: (input: { sessionID: string; messageID: string; partID?: string }) => Promise<unknown>
+  unrevertSession?: (input: { sessionID: string }) => Promise<unknown>
+  deleteMessage?: (input: { sessionID: string; messageID: string; queued?: boolean }) => Promise<unknown>
   sessionModelUsage?: (sessionID: string) => Promise<unknown>
   providers?: () => Promise<unknown>
   providerAuth?: () => Promise<unknown>
@@ -52,6 +69,13 @@ export type KiloBackend = {
   permissions?: (directory: string) => Promise<unknown>
   reply?: (input: { requestID: string; reply: string; message?: string; interactive?: boolean }) => Promise<unknown>
   saveAlwaysRules?: (input: AlwaysRulesInput) => Promise<unknown>
+  authSet?: (input: AuthProviderInput) => Promise<unknown>
+  authRemove?: (input: { providerID: string }) => Promise<unknown>
+  oauthAuthorize?: (input: OAuthInput) => Promise<unknown>
+  oauthCallback?: (input: OAuthInput) => Promise<unknown>
+  disposeGlobal?: () => Promise<unknown>
+  globalConfigGet?: () => Promise<unknown>
+  globalConfigUpdate?: (config: unknown) => Promise<unknown>
   startEvents?: (onEvent: (event: BridgeEvent) => void) => () => void
   stop?: () => Promise<void>
 }
@@ -146,6 +170,32 @@ export class KiloClient implements KiloBackend {
     return this.request(`/session/${encodeURIComponent(input.sessionID)}`, { method: "DELETE" })
   }
 
+  async forkSession(input: { sessionID: string; messageID?: string; directory?: string }) {
+    return this.request(`/session/${encodeURIComponent(input.sessionID)}/fork${directoryQuery(input.directory)}`, {
+      method: "POST",
+      body: JSON.stringify({ messageID: input.messageID }),
+    })
+  }
+
+  async revertSession(input: { sessionID: string; messageID: string; partID?: string }) {
+    return this.request(`/session/${encodeURIComponent(input.sessionID)}/revert`, {
+      method: "POST",
+      body: JSON.stringify({ messageID: input.messageID, partID: input.partID }),
+    })
+  }
+
+  async unrevertSession(input: { sessionID: string }) {
+    return this.request(`/session/${encodeURIComponent(input.sessionID)}/unrevert`, { method: "POST" })
+  }
+
+  async deleteMessage(input: { sessionID: string; messageID: string; queued?: boolean }) {
+    const query = input.queued ? "?queued=true" : ""
+    return this.request(
+      `/session/${encodeURIComponent(input.sessionID)}/message/${encodeURIComponent(input.messageID)}${query}`,
+      { method: "DELETE" },
+    )
+  }
+
   async sessionModelUsage(sessionID: string) {
     return this.request(`/session/${encodeURIComponent(sessionID)}/model-usage`)
   }
@@ -192,6 +242,43 @@ export class KiloClient implements KiloBackend {
       method: "POST",
       body: JSON.stringify({ approvedAlways: input.approvedAlways, deniedAlways: input.deniedAlways }),
     })
+  }
+
+  async authSet(input: AuthProviderInput) {
+    await this.request(`/auth/${encodeURIComponent(input.providerID)}`, {
+      method: "PUT",
+      body: JSON.stringify(input.auth),
+    })
+  }
+
+  async authRemove(input: { providerID: string }) {
+    await this.request(`/auth/${encodeURIComponent(input.providerID)}`, { method: "DELETE" })
+  }
+
+  async oauthAuthorize(input: OAuthInput) {
+    return this.request(`/provider/${encodeURIComponent(input.providerID)}/oauth/authorize${directoryQuery(input.directory)}`, {
+      method: "POST",
+      body: JSON.stringify({ method: input.method, inputs: input.inputs }),
+    })
+  }
+
+  async oauthCallback(input: OAuthInput) {
+    return this.request(`/provider/${encodeURIComponent(input.providerID)}/oauth/callback${directoryQuery(input.directory)}`, {
+      method: "POST",
+      body: JSON.stringify({ method: input.method, code: input.code }),
+    })
+  }
+
+  async disposeGlobal() {
+    return this.request(`/global/dispose`, { method: "POST" })
+  }
+
+  async globalConfigGet() {
+    return this.request(`/global/config`)
+  }
+
+  async globalConfigUpdate(config: unknown) {
+    return this.request(`/global/config`, { method: "PATCH", body: JSON.stringify(config) })
   }
 
   startEvents(onEvent: (event: BridgeEvent) => void) {
@@ -410,6 +497,12 @@ function handleBlock(block: string, handle: (payload: Record<string, unknown>, d
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
+
+function directoryQuery(directory?: string) {
+  return directory ? `?${new URLSearchParams({ directory })}` : ""
+}
+
+export { fetchOpenAIModels, FetchModelsError } from "@kilo-shared/fetch-models"
 
 function sessionOf(data: unknown) {
   if (!isRecord(data)) return undefined

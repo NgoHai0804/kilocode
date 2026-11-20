@@ -221,7 +221,7 @@ export class BridgeServer implements HttpBridge {
           else self.hub.close(ws, code, reason)
         },
         pong(ws) {
-          if (ws.data.role === "ui") self.ui.pong()
+          if (ws.data.role === "ui") self.ui.pong(ws)
           else self.hub.pong()
         },
         maxPayloadLength: Math.max(self.config.bridge.maxPayloadBytes * 2, 1024 * 1024),

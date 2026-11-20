@@ -28,6 +28,10 @@ export type MemoryOptions = {
 
 const TEMPLATES = ["AGENTS.md", "MEMORY.md"] as const
 const ARTIFACT = /^\d{3}-[a-z0-9_-]+-[a-f0-9]{8}\.[a-z0-9]+$/i
+// Bridge state that must never be committed: the runtime token, runtime.json,
+// logs, session notes, and the generated plugin file (which embeds an absolute
+// path to this machine).
+const IGNORE_ENTRIES = ["kilo-browser/", "plugins/kilo-browser-guard.ts"] as const
 
 export function memoryPaths(workspace: string) {
   const root = path.join(workspace, ".kilo", "kilo-browser")
@@ -66,7 +70,24 @@ export async function ensureTemplates(workspace: string): Promise<SeedResult> {
     await Bun.write(target, await template(name))
     created.push(target)
   }
+  await ensureIgnore(workspace)
   return { created, skipped }
+}
+
+/**
+ * Make sure the workspace `.kilo/.gitignore` excludes the generated bridge
+ * state. Existing lines are preserved so user and tooling edits survive.
+ */
+export async function ensureIgnore(workspace: string): Promise<boolean> {
+  const file = path.join(workspace, ".kilo", ".gitignore")
+  await assertInside(workspace, file)
+  const existing = (await Bun.file(file).exists()) ? await Bun.file(file).text() : ""
+  const lines = existing.split(/\r?\n/).map((line) => line.trim())
+  const missing = IGNORE_ENTRIES.filter((entry) => !lines.includes(entry))
+  if (missing.length === 0) return false
+  const base = existing.length === 0 || existing.endsWith("\n") ? existing : `${existing}\n`
+  await Bun.write(file, `${base}${missing.join("\n")}\n`)
+  return true
 }
 
 export async function ensureSession(

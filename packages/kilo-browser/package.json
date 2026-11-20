@@ -21,7 +21,7 @@
     "src/templates"
   ],
   "scripts": {
-    "dev": "bun run --watch src/cli.ts",
+    "dev": "bun run --watch src/cli.ts --persist-token",
     "typecheck": "tsgo --noEmit",
     "test": "bun test",
     "build": "bun run build.ts",

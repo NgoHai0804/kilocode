@@ -9,4 +9,4 @@ if (!root) {
 
 const tab = new URLSearchParams(window.location.search).get("tab") ?? undefined
 
-render(() => <BrowserRoot theme="kilo" initialView="settings" initialSettingsTab={tab} />, root)
+render(() => <BrowserRoot initialView="settings" initialSettingsTab={tab} />, root)

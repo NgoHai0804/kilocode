@@ -228,19 +228,24 @@ async function persistToken(workspace: string, token: string) {
 }
 
 function parseArgs(argv: string[]): Parsed {
-  const command = argv[0] && !argv[0].startsWith("--") ? argv[0] : "start"
-  const rest = argv[0] === command ? argv.slice(1) : argv
   const flags: Flags = {}
+  let command = "start"
   let workspace = process.cwd()
   let help = false
-  for (let index = 0; index < rest.length; index += 1) {
-    const token = rest[index]!
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index]!
+    // Command tokens may appear after injected default flags (e.g. the dev
+    // script prepends `--persist-token`), so accept `start`/`pair` anywhere.
+    if (token === "start" || token === "pair") {
+      command = token
+      continue
+    }
     if (token === "--help" || token === "-h") {
       help = true
       continue
     }
     const { name, inline } = split(token)
-    const value = () => inline ?? rest[++index]
+    const value = () => inline ?? argv[++index]
     switch (name) {
       case "--workspace":
         workspace = value() ?? workspace

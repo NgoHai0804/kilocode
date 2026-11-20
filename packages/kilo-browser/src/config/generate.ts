@@ -105,9 +105,12 @@ export async function ensureGuard(workspace: string): Promise<EnsureResult> {
 
 export function guardModule() {
   const root = packageRoot()
-  const source = path.join(root, "src", "plugin", "kilo-browser-guard.ts")
-  if (existsSync(source)) return source
-  return path.join(root, "dist", "plugin", "kilo-browser-guard.js")
+  // Prefer the built bundle: the bridge spawns the packaged `kilo` binary, which
+  // can import external JavaScript but cannot transpile the TypeScript source at
+  // runtime, so a `src/*.ts` guard would fail to load there.
+  const dist = path.join(root, "dist", "plugin", "kilo-browser-guard.js")
+  if (existsSync(dist)) return dist
+  return path.join(root, "src", "plugin", "kilo-browser-guard.ts")
 }
 
 export function defaultMcpCommand(): string[] {

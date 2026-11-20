@@ -5,6 +5,7 @@ import { ThemeProvider } from "@kilocode/kilo-ui/theme"
 import { File } from "@kilocode/kilo-ui/file"
 import { Spinner } from "@kilocode/kilo-ui/spinner"
 import { fetchUiFile, viewerConfig, type UiFile } from "./viewer-api"
+import { BROWSER_THEME } from "./vscode-theme"
 import "./viewer.css"
 
 type State =
@@ -71,7 +72,7 @@ const root = document.getElementById("root")
 if (!root) throw new Error("Root element not found")
 render(
   () => (
-    <ThemeProvider defaultTheme="kilo">
+      <ThemeProvider defaultTheme={BROWSER_THEME}>
       <FileViewer />
     </ThemeProvider>
   ),

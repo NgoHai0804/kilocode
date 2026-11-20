@@ -1,6 +1,6 @@
 # Delivery plan — Kilo Browser Agent
 
-> Bám spec [0.3.3](../../docs/specs/kilo-browser/README.md) (§1). Mọi trích dẫn § là của spec, không phải của tài liệu này.
+> Bám spec [0.3.4](../../docs/specs/kilo-browser/README.md) (§1). Mọi trích dẫn § là của spec, không phải của tài liệu này.
 
 ## 1. Mục tiêu và nguyên tắc
 

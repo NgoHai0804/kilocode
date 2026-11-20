@@ -29,12 +29,17 @@ Release path order is `build` → `build:ui` → `build:extension` so the packed
 ## Start the bridge and pair
 
 ```bash
-bun run dev -- start --workspace .   # dev mode
+bun run dev -- start --workspace .   # dev mode (persists the token)
 # or, after build:
-kilo-browser start --workspace .      # production start
+kilo-browser start --workspace . --persist-token   # production start
 ```
 
 The bridge prints a pairing code (6 digits, valid for 120s) and the loopback URL. Only one extension may be paired at a time.
+
+`--persist-token` reuses one bridge token across restarts (stored at `.kilo/kilo-browser/token`). Without it every
+start mints a new token and drops the paired extension, so a running UI is rejected with `401` — its WebSocket
+logs `ws://127.0.0.1:<port>/ws?role=ui failed` and the panel shows **Reconnecting**. The `dev` script already
+passes `--persist-token`; if you run the bridge with `--watch` yourself, add it too.
 
 - Rotate or revoke the bridge token: `kilo-browser pair --rotate` / `kilo-browser pair --revoke`
   (with `--workspace <path>` if you did not start from the workspace root).
@@ -102,6 +107,7 @@ On Windows every spawned process must set `windowsHide: true` to avoid flashing 
 | Symptom | Fix |
 |---|---|
 | UI shows "Reconnecting" | Bridge not running, or the token was rotated. Start the bridge and pair again. |
+| UI WebSocket `…/ws?role=ui` fails, model list stays empty | Bridge token rotated on restart. Restart with `--persist-token` (the `dev` script does this) or re-pair with the current code. |
 | Pair code rejected | Code expired (120s) or too many wrong attempts (lockout 60s). Restart/rotate and retry. |
 | `DEVTOOLS_CONFLICT` | Close DevTools on the target tab, then retry. |
 | `Origin not in allowlist` | Add the origin in Settings, or use `http://127.0.0.1`/`http://localhost`. |
