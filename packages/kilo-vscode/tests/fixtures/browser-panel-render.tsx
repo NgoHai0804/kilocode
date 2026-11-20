@@ -24,7 +24,7 @@ Object.assign(globalThis, {
 
 const { createSignal } = await import("solid-js")
 const { render } = await import("solid-js/web")
-const { BrowserPanel, browserCursorEvent } = await import("../../webview-ui/browser")
+const { BrowserPanel, browserCursorEvent } = await import("../../webview-ui/browser/api")
 const { StreamViewport } = await import("../../webview-ui/browser/StreamViewport")
 import type { BrowserCommand, BrowserEvent, BrowserLabels } from "../../webview-ui/browser/types"
 import type { BrowserReference } from "../../src/shared/browser-feedback"

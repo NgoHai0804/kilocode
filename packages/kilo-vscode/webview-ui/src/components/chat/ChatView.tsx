@@ -28,6 +28,7 @@ import { useVSCode } from "../../context/vscode"
 import { useLanguage } from "../../context/language"
 import { useWorktreeMode } from "../../context/worktree-mode"
 import { useServer } from "../../context/server"
+import { useCapability } from "../../host/capability-context"
 import { TranscriptSearchProvider } from "../../context/transcript-search"
 import { isPromptBlocked, isSuggesting, isQuestioning } from "./prompt-input-utils"
 import { taskChildren } from "./background-agents"
@@ -72,11 +73,12 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const worktreeMode = useWorktreeMode()
   const server = useServer()
   const tabs = useLocalTabs()
+  const worktree = useCapability("worktree")
   // Show "Show Changes" only in the standalone sidebar, not inside Agent Manager
   const isSidebar = () => worktreeMode === undefined
   const pendingSessionID = () => props.pendingSessionID ?? tabs?.pending()
   // Show "Continue in Worktree": only when explicitly enabled via prop
-  const canContinueInWorktree = () => props.continueInWorktree === true
+  const canContinueInWorktree = () => props.continueInWorktree === true && worktree()
   const ownsPrompts = () => props.interactivePrompts !== false
 
   const id = () => session.currentSessionID()
@@ -263,7 +265,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   const showAdvancedWorktree = () => vscode.postMessage({ type: "openAdvancedWorktree" })
 
   createEffect(() => {
-    if (!isSidebar() || !server.gitInstalled()) return
+    if (!isSidebar() || !worktree() || !server.gitInstalled()) return
     vscode.postMessage({ type: "agentManager.requestRepoInfo" })
   })
 
@@ -273,7 +275,7 @@ export const ChatView: Component<ChatViewProps> = (props) => {
   // turns. The dock hides it and makes it non-interactive while a turn runs.
   const canFork = (hasChat: boolean) => hasChat && !isSidebar() && !!props.onForkSession
 
-  const canStartWorktree = () => isSidebar() && server.gitInstalled()
+  const canStartWorktree = () => isSidebar() && worktree() && server.gitInstalled()
 
   const canMoveToWorktree = (hasChat: boolean) => hasChat && canContinueInWorktree() && server.gitInstalled()
 

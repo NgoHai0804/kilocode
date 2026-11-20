@@ -240,9 +240,13 @@ export function buildMentionResults(
   git = true,
   worktrees = false,
   sessions: MentionResult[] = [],
+  terminal = true,
 ): MentionResult[] {
   const gates = { git, worktrees }
-  const references = entries.filter((entry) => entry.gate === null || gates[entry.gate]).map((entry) => entry.result)
+  const references = entries
+    .filter((entry) => entry.gate === null || gates[entry.gate])
+    .map((entry) => entry.result)
+    .filter((entry) => terminal || entry.type !== "terminal")
   const results: MentionResult[] = items.map((item) => {
     if (typeof item === "string") return { type: "file", value: item }
     const owner = { ...(item.root ? { root: item.root } : {}), ...(item.relative ? { relative: item.relative } : {}) }

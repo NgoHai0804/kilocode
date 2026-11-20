@@ -233,6 +233,28 @@
         "@typescript/native-preview": "catalog:",
       },
     },
+    "packages/kilo-browser": {
+      "name": "@kilocode/kilo-browser",
+      "version": "0.1.0",
+      "bin": {
+        "kilo-browser": "./dist/cli.js",
+        "kilo-browser-mcp": "./dist/mcp/main.js",
+      },
+      "dependencies": {
+        "@lottiefiles/dotlottie-web": "0.63.0",
+        "@pierre/diffs": "catalog:",
+        "solid-js": "catalog:",
+      },
+      "devDependencies": {
+        "@playwright/test": "catalog:",
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plugin-solid": "catalog:",
+      },
+    },
     "packages/kilo-console": {
       "name": "@kilocode/kilo-console",
       "version": "7.8.30",
@@ -1829,6 +1851,8 @@
     "@jsdevtools/ono": ["@jsdevtools/ono@7.1.3", "", {}, "sha512-4JQNk+3mVzK3xh2rqd6RB4J46qUR19azEHBneZyTZM+c456qOrbbM/5xcR8huNCCcbVt7+UmizG6GuUvPvKUYg=="],
 
     "@kilocode/cli": ["@kilocode/cli@workspace:packages/opencode"],
+
+    "@kilocode/kilo-browser": ["@kilocode/kilo-browser@workspace:packages/kilo-browser"],
 
     "@kilocode/kilo-console": ["@kilocode/kilo-console@workspace:packages/kilo-console"],
 

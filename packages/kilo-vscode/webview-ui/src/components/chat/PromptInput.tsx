@@ -40,6 +40,7 @@ import { mcpAuthIssues } from "./session-issues"
 import { SessionIssues } from "./SessionIssues"
 import { useLanguage } from "../../context/language"
 import { useVSCode } from "../../context/vscode"
+import { useCapability } from "../../host/capability-context"
 import { useConfig } from "../../context/config"
 import { recommend, type ManagerContext } from "../../utils/shortcut-hint"
 import { PromptHint } from "./PromptHint"
@@ -61,7 +62,7 @@ import { useTerminalContext } from "../../hooks/useTerminalContext"
 import { useGitChangesContext } from "../../hooks/useGitChangesContext"
 import { hasTerminalMention } from "../../hooks/terminal-context-utils"
 import { hasGitChangesMention } from "../../hooks/git-changes-context-utils"
-import { useSlashCommand, skill as isSkill } from "../../hooks/useSlashCommand"
+import { useSlashCommand, skill as isSkill, type SlashCommandEntry } from "../../hooks/useSlashCommand"
 import { useGoalComposer } from "./goal/useGoalComposer"
 import { GoalHeader } from "./goal/GoalHeader"
 import { useGhostText } from "../../hooks/useGhostText"
@@ -276,6 +277,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const language = useLanguage()
   const vscode = useVSCode()
   const projectMemory = useMemory()
+  const terminalCapability = useCapability("terminal")
+  const speechCapability = useCapability("speech")
+  const ghostCapability = useCapability("ghostText")
+  const indexingCapability = useCapability("settings.indexing")
+  const sandboxCapability = useCapability("settings.sandboxing")
+  const cloudCapability = useCapability("cloud")
   const sid = () => session.currentSessionID() ?? props.pendingSessionID ?? session.draftSessionID() ?? undefined
   const ctx = () => {
     const id = props.boxId
@@ -285,7 +292,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
   const hasGit = () => server.gitInstalled()
   const modelKeys = createMemo(() => new Set(provider.models().map((model) => `${model.providerID}/${model.id}`)))
-  const mention = useFileMention(vscode, sid, hasGit, props.worktrees, modelKeys)
+  const mention = useFileMention(vscode, sid, hasGit, props.worktrees, modelKeys, terminalCapability)
   // Picking the `@` model entry reuses the shared model selector: it is
   // mounted hidden and opened through its programmatic-open event. The mention
   // latch resets immediately because the selector owns its own open state, so
@@ -295,7 +302,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     mention.closeMention()
     window.dispatchEvent(new CustomEvent("openModelPicker", { detail: { source: MENTION_MODEL_TRIGGER } }))
   })
-  const terminal = useTerminalContext(props.resolveEmbeddedTerminal)
+  const terminal = useTerminalContext(props.resolveEmbeddedTerminal, terminalCapability)
   const git = useGitChangesContext(vscode, ctx, hasGit)
   const imageAttach = useImageAttachments()
   imageAttach.setFilePathDropHandler((paths) => {
@@ -445,6 +452,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return id?.startsWith("cloud:") ? undefined : id
   }
   const sandboxVisible = () =>
+    sandboxCapability() &&
     features().sandboxControls &&
     globalConfig().sandbox?.enabled === true &&
     !session.currentSessionID()?.startsWith("cloud:")
@@ -491,6 +499,34 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       agentManagerContext: ctx(),
     })
   }
+  const slashCommands: SlashCommandEntry[] = [
+    {
+      name: "goal",
+      description: language.t("prompt.goal.set"),
+      hints: [],
+      select: () => {
+        goal.activate()
+        ghost.dismiss()
+        textareaRef?.focus()
+      },
+    },
+    {
+      name: "update-from-base",
+      description: "Ask the worktree agent to fetch and merge its saved base branch",
+      hints: [],
+      action: () => props.onUpdateBase?.(),
+      enabled: () => props.worktree === true && server.isConnected() && !locked() && !props.blocked?.(),
+    },
+  ]
+  if (cloudCapability()) {
+    slashCommands.push({
+      name: "caffeinate",
+      description: "Keep the computer awake while Kilo agents work",
+      hints: ["caffenate", "keep-awake"],
+      action: () => vscode.postMessage({ type: "toggleCaffeination" }),
+    })
+  }
+
   const slash = useSlashCommand(
     vscode,
     { action: toggleSandbox, enabled: () => sandboxVisible() && !sandboxDisabled() },
@@ -504,31 +540,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     },
     undefined,
     undefined,
-    [
-      {
-        name: "goal",
-        description: language.t("prompt.goal.set"),
-        hints: [],
-        select: () => {
-          goal.activate()
-          ghost.dismiss()
-          textareaRef?.focus()
-        },
-      },
-      {
-        name: "update-from-base",
-        description: "Ask the worktree agent to fetch and merge its saved base branch",
-        hints: [],
-        action: () => props.onUpdateBase?.(),
-        enabled: () => props.worktree === true && server.isConnected() && !locked() && !props.blocked?.(),
-      },
-      {
-        name: "caffeinate",
-        description: "Keep the computer awake while Kilo agents work",
-        hints: ["caffenate", "keep-awake"],
-        action: () => vscode.postMessage({ type: "toggleCaffeination" }),
-      },
-    ],
+    slashCommands,
   )
   const clearSandboxRequest = (sessionID: string | undefined, requestID: string) => {
     setSandboxRequests((current) => {
@@ -573,7 +585,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     requestSandbox()
   })
 
-  const ghost = useGhostText(vscode, text, () => server.isConnected())
+  const ghost = useGhostText(vscode, text, () => server.isConnected(), ghostCapability)
   const speech = useSpeechToText(vscode, server, language)
   const speechModels = useSpeechToTextModels()
 
@@ -827,6 +839,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const isBusy = () =>
     isPromptBusy(session.status(), !!props.suggesting?.(), !!props.questioning?.(), session.submitting())
   const showIndexing = () =>
+    indexingCapability() &&
     indexingButtonVisible(
       features().indexing,
       Boolean(settings()["indexing.showButtonWhenDisabled"] ?? true),
@@ -834,7 +847,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       globalConfig(),
     )
   const isDisabled = () => !server.isConnected() || locked() || goal.pending()
-  const canUseSpeech = () => canUseSpeechToText(config(), provider.authStates(), features().speechToText)
+  const canUseSpeech = () => speechCapability() && canUseSpeechToText(config(), provider.authStates(), features().speechToText)
   const speechModel = () => selectedSpeechToTextModel(config(), speechModels.models())
   const hasInput = () =>
     text().trim().length > 0 ||
@@ -875,7 +888,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const paths = new Set(mention.mentionedPaths())
     for (const token of mention.mentionedSessions().keys()) paths.add(token)
     for (const token of mention.mentionedModels()) paths.add(token)
-    if (hasTerminalMention(text())) paths.add("terminal")
+    if (terminalCapability() && hasTerminalMention(text())) paths.add("terminal")
     if (hasGit() && hasGitChangesMention(text())) paths.add("git-changes")
     return paths
   }
@@ -1827,7 +1840,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         showToast({ variant: "error", title: "Terminal context unavailable", description: err.message })
         return undefined
       })
-    if (hasTerminalMention(message) && !terminalFile) {
+    if (terminalCapability() && hasTerminalMention(message) && !terminalFile) {
       finishPending(pendingId)
       return
     }

@@ -4,12 +4,12 @@ import { DotLottie } from "@lottiefiles/dotlottie-web"
 /**
  * DotLottie defaults to a CDN for its WASM renderer. Point it at the copy esbuild ships next
  * to the webview bundles (see `wasm()` in esbuild.js) so the logo never reaches the network.
- * The shiki worker URI is the only `dist/` URI the host injects, so derive the WASM URI from it.
+ * The browser host injects `KILO_DOTLOTTIE_WASM_URI` directly; VS Code derives it from the shiki worker URI.
  */
-const wasm = (window as { KILO_SHIKI_WORKER_URI?: string }).KILO_SHIKI_WORKER_URI?.replace(
-  /shiki-worker\.js$/,
-  "dotlottie-player.wasm",
-)
+const globals = window as { KILO_DOTLOTTIE_WASM_URI?: string; KILO_SHIKI_WORKER_URI?: string }
+const wasm =
+  globals.KILO_DOTLOTTIE_WASM_URI ??
+  globals.KILO_SHIKI_WORKER_URI?.replace(/shiki-worker\.js$/, "dotlottie-player.wasm")
 if (wasm) DotLottie.setWasmUrl(wasm)
 
 export const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true

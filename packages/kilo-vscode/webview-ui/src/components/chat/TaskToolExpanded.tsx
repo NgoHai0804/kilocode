@@ -20,6 +20,7 @@ import { useI18n } from "@kilocode/kilo-ui/context/i18n"
 import { createAutoScroll } from "@kilocode/kilo-ui/hooks"
 import { useSession } from "../../context/session"
 import { useVSCode } from "../../context/vscode"
+import { useCapability } from "../../host/capability-context"
 import { useWorktreeMode } from "../../context/worktree-mode"
 import { childID, latestTaskPart } from "../../context/session-utils"
 import { useConfig } from "../../context/config"
@@ -42,6 +43,7 @@ const TaskToolRenderer: Component<ToolProps> = (props) => {
   const { features } = useConfig()
   const vscode = useVSCode()
   const worktree = useWorktreeMode()
+  const subagents = useCapability("subAgentViewer")
 
   const childSessionId = () =>
     childID({
@@ -206,6 +208,7 @@ const TaskToolRenderer: Component<ToolProps> = (props) => {
 
   const openInTab = (e: MouseEvent) => {
     e.stopPropagation()
+    if (!subagents()) return
     const id = childSessionId()
     if (!id) return
     openSubagent({
@@ -274,15 +277,17 @@ const TaskToolRenderer: Component<ToolProps> = (props) => {
             />
           </Tooltip>
         </Show>
-        <Tooltip value={openLabel()} placement="top">
-          <IconButton
-            icon="square-arrow-top-right"
-            size="small"
-            variant="ghost"
-            aria-label={openLabel()}
-            onClick={openInTab}
-          />
-        </Tooltip>
+        <Show when={subagents()}>
+          <Tooltip value={openLabel()} placement="top">
+            <IconButton
+              icon="square-arrow-top-right"
+              size="small"
+              variant="ghost"
+              aria-label={openLabel()}
+              onClick={openInTab}
+            />
+          </Tooltip>
+        </Show>
       </Show>
     </div>
   )
@@ -294,10 +299,10 @@ const TaskToolRenderer: Component<ToolProps> = (props) => {
         iconNode={
           <span
             data-slot="task-agent-avatar"
-            data-clickable={childSessionId() ? "true" : undefined}
+            data-clickable={childSessionId() && subagents() ? "true" : undefined}
             data-resolve={resolved() ? "true" : undefined}
-            title={childSessionId() ? openLabel() : undefined}
-            onClick={childSessionId() ? openInTab : undefined}
+            title={childSessionId() && subagents() ? openLabel() : undefined}
+            onClick={childSessionId() && subagents() ? openInTab : undefined}
           >
             <AgentAvatar id={childSessionId() ?? ""} status={avatar()} />
           </span>

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@kilocode/kilo-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kilo Browser Agent local bridge and MCP shim",
+  "license": "MIT",
+  "bin": {
+    "kilo-browser": "./dist/cli.js",
+    "kilo-browser-mcp": "./dist/mcp/main.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./plugin": "./src/plugin/kilo-browser-guard.ts",
+    "./mcp": "./src/mcp.ts"
+  },
+  "files": [
+    "dist",
+    "src",
+    "src/templates"
+  ],
+  "scripts": {
+    "dev": "bun run --watch src/cli.ts",
+    "typecheck": "tsgo --noEmit",
+    "test": "bun test",
+    "build": "bun run build.ts",
+    "build:extension": "bun run build:ui && bun run extension/build.ts",
+    "build:ui": "node node_modules/vite/bin/vite.js build --config extension/vite.config.ts",
+    "dev:ui": "node node_modules/vite/bin/vite.js --config extension/vite.config.ts",
+    "test:e2e": "bun test test/e2e",
+    "test:ui": "bun test test/e2e/ui",
+    "demo": "bun run src/demo.ts"
+  },
+  "dependencies": {
+    "@lottiefiles/dotlottie-web": "0.63.0",
+    "@pierre/diffs": "catalog:",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@playwright/test": "catalog:",
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-solid": "catalog:"
+  }
+}

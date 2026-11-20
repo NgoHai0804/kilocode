@@ -206,7 +206,7 @@ describe("Agent Manager CSS/TSX Consistency", () => {
 
 describe("Browser module boundaries", () => {
   it("keeps browser core independent from Agent Manager and VS Code context", () => {
-    const files = ["BrowserPanel.tsx", "controller.ts", "types.ts", "index.ts"]
+    const files = ["BrowserPanel.tsx", "controller.ts", "types.ts", "api.ts"]
     for (const file of files) {
       const source = fs.readFileSync(path.join(ROOT, "webview-ui/browser", file), "utf-8")
       expect(source).not.toMatch(/agent-manager|AgentManager|SidePanel|useVSCode|window\.postMessage/)
@@ -1313,11 +1313,11 @@ describe("Shared webview provider shell", () => {
     const base = fs.readFileSync(path.join(ROOT, "webview-ui/src/context/provider-base.tsx"), "utf-8")
     const rich = fs.readFileSync(path.join(ROOT, "webview-ui/src/context/rich-provider.tsx"), "utf-8")
     const session = fs.readFileSync(path.join(ROOT, "webview-ui/src/context/provider-session.tsx"), "utf-8")
-    expect(source).toContain("<Base content={RichProvider}>")
+    expect(source).toContain("<Base content={RichProvider} host={props.host} theme={props.theme}>")
     ordered(base, [
       "ThemeProvider",
       "DialogProvider",
-      "VSCodeProvider",
+      "Host",
       "ServerProvider",
       "LanguageBridge",
       "Content",

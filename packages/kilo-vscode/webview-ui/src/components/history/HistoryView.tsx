@@ -10,6 +10,8 @@ import { useDialog } from "@kilocode/kilo-ui/context/dialog"
 import { useLanguage } from "../../context/language"
 import { useSession } from "../../context/session"
 import { useLocalTabs } from "../../context/local-tabs"
+import { useHost } from "../../host/HostProvider"
+import { hasCapability } from "../../host/capabilities"
 import { CloudImportDialog } from "../chat/CloudImportDialog"
 import SessionList from "./SessionList"
 import CloudSessionList from "./CloudSessionList"
@@ -34,6 +36,8 @@ const HistoryView: Component<HistoryViewProps> = (props) => {
   const dialog = useDialog()
   const session = useSession()
   const tabs = useLocalTabs()
+  const host = useHost()
+  const cloudEnabled = () => hasCapability(host.capabilities, "cloud")
   const worktreeIds = () => props.worktreeSessionIds?.()
   const [tab, setTab] = createSignal<Source>(worktreeIds() ? "worktree" : "local")
   let local: HTMLButtonElement | undefined
@@ -78,7 +82,11 @@ const HistoryView: Component<HistoryViewProps> = (props) => {
   }
 
   function move(event: KeyboardEvent, current: Source) {
-    const sources: Source[] = worktreeIds() ? ["local", "cloud", "worktree"] : ["local", "cloud"]
+    const sources: Source[] = [
+      "local",
+      ...(cloudEnabled() ? (["cloud"] as const) : []),
+      ...(worktreeIds() ? (["worktree"] as const) : []),
+    ]
     const index = sources.indexOf(current)
     const source =
       event.key === "Home"
@@ -118,21 +126,23 @@ const HistoryView: Component<HistoryViewProps> = (props) => {
           >
             {language.t("session.tab.local")}
           </button>
-          <button
-            ref={cloud}
-            id="history-tab-cloud"
-            class="history-tab-btn"
-            classList={{ "history-tab-btn--active": tab() === "cloud" }}
-            type="button"
-            role="tab"
-            aria-selected={tab() === "cloud"}
-            aria-controls="history-panel-cloud"
-            tabIndex={tab() === "cloud" ? 0 : -1}
-            onClick={() => setTab("cloud")}
-            onKeyDown={(event) => move(event, "cloud")}
-          >
-            {language.t("session.tab.cloud")}
-          </button>
+          <Show when={cloudEnabled()}>
+            <button
+              ref={cloud}
+              id="history-tab-cloud"
+              class="history-tab-btn"
+              classList={{ "history-tab-btn--active": tab() === "cloud" }}
+              type="button"
+              role="tab"
+              aria-selected={tab() === "cloud"}
+              aria-controls="history-panel-cloud"
+              tabIndex={tab() === "cloud" ? 0 : -1}
+              onClick={() => setTab("cloud")}
+              onKeyDown={(event) => move(event, "cloud")}
+            >
+              {language.t("session.tab.cloud")}
+            </button>
+          </Show>
           <Show when={worktreeIds()}>
             <button
               ref={worktree}
@@ -151,9 +161,11 @@ const HistoryView: Component<HistoryViewProps> = (props) => {
             </button>
           </Show>
         </div>
-        <Button variant="secondary" size="small" onClick={openImport} class="history-import-btn">
-          {language.t("session.cloud.import")}
-        </Button>
+        <Show when={cloudEnabled()}>
+          <Button variant="secondary" size="small" onClick={openImport} class="history-import-btn">
+            {language.t("session.cloud.import")}
+          </Button>
+        </Show>
       </div>
 
       <div
@@ -172,16 +184,18 @@ const HistoryView: Component<HistoryViewProps> = (props) => {
           />
         )}
       </div>
-      <div
-        class="history-view-content"
-        ref={cloudPanel}
-        id="history-panel-cloud"
-        role="tabpanel"
-        aria-labelledby="history-tab-cloud"
-        hidden={tab() !== "cloud"}
-      >
-        {tab() === "cloud" && <CloudSessionList onSelectSession={selectCloudSession} />}
-      </div>
+      <Show when={cloudEnabled()}>
+        <div
+          class="history-view-content"
+          ref={cloudPanel}
+          id="history-panel-cloud"
+          role="tabpanel"
+          aria-labelledby="history-tab-cloud"
+          hidden={tab() !== "cloud"}
+        >
+          {tab() === "cloud" && <CloudSessionList onSelectSession={selectCloudSession} />}
+        </div>
+      </Show>
       <Show when={worktreeIds()}>
         <div
           class="history-view-content"

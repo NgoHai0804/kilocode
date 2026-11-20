@@ -3,7 +3,7 @@ import { useLanguage } from "../src/context/language"
 import { useVSCode } from "../src/context/vscode"
 import type { ExtensionMessage } from "../src/types/messages"
 import { formatBrowserFeedback, type BrowserReference } from "../../src/shared/browser-feedback"
-import { BrowserPanel, browserLabels, browserScope, browserTransport } from "../browser"
+import { BrowserPanel, browserLabels, browserScope, browserTransport } from "../browser/api"
 import { command, event } from "./messages"
 
 export const BrowserTabApp: Component = () => {

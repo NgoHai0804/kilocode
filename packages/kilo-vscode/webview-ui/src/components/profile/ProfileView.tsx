@@ -6,6 +6,9 @@ import { Select } from "@kilocode/kilo-ui/select"
 import { Tooltip } from "@kilocode/kilo-ui/tooltip"
 import { useVSCode } from "../../context/vscode"
 import { useLanguage } from "../../context/language"
+import { useHost } from "../../host/HostProvider"
+import { hasCapability } from "../../host/capabilities"
+import { CapabilityBoundary } from "../../host/capability-context"
 import DeviceAuthCard from "./DeviceAuthCard"
 import type { ProfileData, ProviderUsageData, DeviceAuthState } from "../../types/messages"
 import { ProviderUsageCards } from "./ProviderUsageCards"
@@ -38,6 +41,8 @@ interface OrgOption {
 const ProfileView: Component<ProfileViewProps> = (props) => {
   const vscode = useVSCode()
   const language = useLanguage()
+  const host = useHost()
+  const cloud = () => hasCapability(host.capabilities, "cloud")
   const [target, setTarget] = createSignal<string | null>(null)
 
   const personal = createMemo(() => props.profileData?.profile.hasPersonalAccount !== false)
@@ -45,7 +50,7 @@ const ProfileView: Component<ProfileViewProps> = (props) => {
   // Load current profile and usage when navigating to this view.
   onMount(() => {
     vscode.postMessage({ type: "refreshProfile" })
-    props.onRequestProviderUsage?.()
+    if (cloud()) props.onRequestProviderUsage?.()
   })
 
   // Reset pending target whenever profileData changes (success or failure both send a fresh profile)
@@ -227,7 +232,7 @@ const ProfileView: Component<ProfileViewProps> = (props) => {
               </Card>
 
               {/* Organization selector */}
-              <Show when={orgOptions().length > 0}>
+              <Show when={cloud() && orgOptions().length > 0}>
                 <Card>
                   <p
                     style={{
@@ -255,7 +260,7 @@ const ProfileView: Component<ProfileViewProps> = (props) => {
               </Show>
 
               {/* Balance */}
-              <Show when={data().balance}>
+              <Show when={cloud() && data().balance}>
                 {(balance) => (
                   <Card style={{ display: "flex", "flex-direction": "column", gap: "12px" }}>
                     <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between" }}>
@@ -294,12 +299,14 @@ const ProfileView: Component<ProfileViewProps> = (props) => {
 
               {/* Action buttons */}
               <div style={{ display: "flex", gap: "8px" }}>
-                <Button variant="secondary" onClick={handleDashboard} style={{ flex: "1" }}>
-                  {language.t("profile.action.dashboard")}
-                </Button>
-                <Button variant="secondary" onClick={handleTopUp} style={{ flex: "1" }}>
-                  {language.t("profile.action.topUp")}
-                </Button>
+                <Show when={cloud()}>
+                  <Button variant="secondary" onClick={handleDashboard} style={{ flex: "1" }}>
+                    {language.t("profile.action.dashboard")}
+                  </Button>
+                  <Button variant="secondary" onClick={handleTopUp} style={{ flex: "1" }}>
+                    {language.t("profile.action.topUp")}
+                  </Button>
+                </Show>
                 <Button
                   variant="ghost"
                   onClick={handleLogout}
@@ -309,12 +316,12 @@ const ProfileView: Component<ProfileViewProps> = (props) => {
                 </Button>
               </div>
 
-              {usage()}
+              <Show when={cloud()}>{usage()}</Show>
             </div>
           )}
         </Show>
 
-        <Show when={!props.profileData}>{usage()}</Show>
+        <CapabilityBoundary capability="cloud">{!props.profileData ? usage() : undefined}</CapabilityBoundary>
       </div>
     </div>
   )

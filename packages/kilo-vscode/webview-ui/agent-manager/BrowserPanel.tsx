@@ -3,7 +3,7 @@ import { useLanguage } from "../src/context/language"
 import { useVSCode } from "../src/context/vscode"
 import type { ExtensionMessage, WebviewMessage } from "../src/types/messages"
 import { formatBrowserFeedback, type BrowserReference } from "../../src/shared/browser-feedback"
-import { BrowserPanel as BrowserPanelView } from "../browser"
+import { BrowserPanel as BrowserPanelView } from "../browser/api"
 import {
   browserCursorEvent,
   browserDevtoolsEvent,
@@ -13,8 +13,8 @@ import {
   browserScope,
   browserStateEvent,
   browserTransport,
-} from "../browser"
-import type { BrowserCommand, BrowserEvent } from "../browser"
+} from "../browser/api"
+import type { BrowserCommand, BrowserEvent } from "../browser/api"
 import { SidePanel } from "./side-panel-layout"
 import { post } from "../src/utils/webview-message"
 import { browserScopeKey, browserScopeParts, evictBrowserScopes, rememberBrowserScope } from "./browser-panel-cache"

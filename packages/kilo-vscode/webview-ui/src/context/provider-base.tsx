@@ -10,12 +10,13 @@ import { ConfigProvider } from "./config"
 import { DisplayProvider } from "./display"
 import { SpeechToTextPrewarm } from "../components/speech-to-text/SpeechToTextPrewarm"
 
-export const Base: ParentComponent<{ content?: ParentComponent }> = (props) => {
+export const Base: ParentComponent<{ content?: ParentComponent; host?: ParentComponent; theme?: string }> = (props) => {
   const Content = props.content ?? ((props) => props.children)
+  const Host = props.host ?? VSCodeProvider
   return (
-    <ThemeProvider defaultTheme="kilo-vscode">
+    <ThemeProvider defaultTheme={props.theme ?? "kilo-vscode"}>
       <DialogProvider>
-        <VSCodeProvider>
+        <Host>
           <ServerProvider>
             <LanguageBridge>
               <Content>
@@ -28,7 +29,7 @@ export const Base: ParentComponent<{ content?: ParentComponent }> = (props) => {
               </Content>
             </LanguageBridge>
           </ServerProvider>
-        </VSCodeProvider>
+        </Host>
         <Toast.Region />
       </DialogProvider>
     </ThemeProvider>

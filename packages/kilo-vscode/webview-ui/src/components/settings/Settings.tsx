@@ -6,6 +6,8 @@ import { useDialog } from "@kilocode/kilo-ui/context/dialog"
 import { Tooltip } from "@kilocode/kilo-ui/tooltip"
 import { showToast } from "@kilocode/kilo-ui/toast"
 import { useVSCode } from "../../context/vscode"
+import { useHost } from "../../host/HostProvider"
+import { filterSettingsTabs, hasCapability, settingsTabCapability } from "../../host/capabilities"
 import { useLanguage } from "../../context/language"
 import { useConfig } from "../../context/config"
 import { useSession } from "../../context/session"
@@ -270,14 +272,24 @@ const Settings: Component<SettingsProps> = (props) => {
   const vscode = useVSCode()
   const { loading, isDirty, saving, saveError, saveConfig, discardConfig, features } = useConfig()
   const session = useSession()
+  const host = useHost()
+  const can = (tab: string) => {
+    const capability = settingsTabCapability(tab)
+    return capability !== undefined && hasCapability(host.capabilities, capability)
+  }
+  const canOpenFiles = () => hasCapability(host.capabilities, "file.open")
   const [active, setActive] = createSignal(props.tab ?? "models")
   const [errorExpanded, setErrorExpanded] = createSignal(false)
   // Keep requested tabs registered while config loads so Tabs does not reset them to Models.
   const indexing = createMemo(
-    () => features().indexing || (loading() && (active() === "indexing" || props.tab === "indexing")),
+    () =>
+      can("indexing") &&
+      (features().indexing || (loading() && (active() === "indexing" || props.tab === "indexing"))),
   )
   const sandboxing = createMemo(
-    () => Sandboxing.visible(features()) || (loading() && (active() === "sandboxing" || props.tab === "sandboxing")),
+    () =>
+      can("sandboxing") &&
+      (Sandboxing.visible(features()) || (loading() && (active() === "sandboxing" || props.tab === "sandboxing"))),
   )
 
   const busyCount = () => Object.values(session.allStatusMap()).filter((s) => s.type === "busy").length
@@ -331,13 +343,23 @@ const Settings: Component<SettingsProps> = (props) => {
   }
 
   const searchTabs = createMemo<SettingsTab[]>(() =>
-    SETTINGS_TABS.filter((tab) => {
+    filterSettingsTabs(SETTINGS_TABS, host.capabilities).filter((tab) => {
       if (tab.id === "indexing") return features().indexing
-      if (tab.id === "sandboxing") return sandboxing()
+      if (tab.id === "sandboxing") return Sandboxing.visible(features())
       if (tab.id === "agentManager") return props.agentManagerSettings === true
       return true
     }),
   )
+
+  // A host can navigate to a tab it does not support (for example a stale
+  // persisted tab). Fall back to the first visible tab instead of mounting a
+  // component the host cannot drive.
+  createEffect(() => {
+    if (loading() || searchTabs().some((tab) => tab.id === active())) return
+    const next = searchTabs()[0]?.id
+    if (!next) return
+    onTabChange(next)
+  })
 
   const search = useSettingsSearch({
     tabs: searchTabs,
@@ -365,12 +387,14 @@ const Settings: Component<SettingsProps> = (props) => {
         <h2 style={{ "font-size": "var(--kilo-font-size-16)", "font-weight": "600", margin: 0, flex: 1 }}>
           {language.t("sidebar.settings")}
         </h2>
-        <Button variant="secondary" size="small" icon="edit" onClick={() => open("local")}>
-          {language.t("settings.openLocalConfig")}
-        </Button>
-        <Button variant="secondary" size="small" icon="edit" onClick={() => open("global")}>
-          {language.t("settings.openGlobalConfig")}
-        </Button>
+        <Show when={canOpenFiles()}>
+          <Button variant="secondary" size="small" icon="edit" onClick={() => open("local")}>
+            {language.t("settings.openLocalConfig")}
+          </Button>
+          <Button variant="secondary" size="small" icon="edit" onClick={() => open("global")}>
+            {language.t("settings.openGlobalConfig")}
+          </Button>
+        </Show>
         <Tooltip value={language.t("common.reloadDescription")} placement="bottom">
           <Button variant="secondary" size="small" onClick={() => vscode.postMessage({ type: "reload" })}>
             <Icon name="reload" size="small" />
@@ -404,91 +428,126 @@ const Settings: Component<SettingsProps> = (props) => {
               onDismiss={search.clear}
             />
           </div>
+          <Show when={can("models")}>
           <Tabs.Trigger value="models" aria-label={language.t("settings.models.title")}>
             <Icon name="models" />
             <span class="label">{language.t("settings.models.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("providers")}>
           <Tabs.Trigger value="providers" aria-label={language.t("settings.providers.title")}>
             <Icon name="providers" />
             <span class="label">{language.t("settings.providers.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("agentBehaviour")}>
           <Tabs.Trigger value="agentBehaviour" aria-label={language.t("settings.agentBehaviour.title")}>
             <Icon name="brain" />
             <span class="label">{language.t("settings.agentBehaviour.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("autoApprove")}>
           <Tabs.Trigger value="autoApprove" aria-label={language.t("settings.autoApprove.title")}>
             <Icon name="checklist" />
             <span class="label">{language.t("settings.autoApprove.title")}</span>
           </Tabs.Trigger>
-          <Show when={props.agentManagerSettings}>
+          </Show>
+          <Show when={props.agentManagerSettings && can("agentManager")}>
+          <Show when={props.agentManagerSettings && can("agentManager")}>
             <Tabs.Trigger value="agentManager" aria-label={language.t("agentManager.settings.title")}>
               <Icon name="settings-gear" />
               <span class="label">{language.t("agentManager.settings.title")}</span>
             </Tabs.Trigger>
           </Show>
+          </Show>
+          <Show when={can("browser")}>
           <Tabs.Trigger value="browser" aria-label={language.t("settings.webTools.title")}>
             <Icon name="window-cursor" />
             <span class="label">{language.t("settings.webTools.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("checkpoints")}>
           <Tabs.Trigger value="checkpoints" aria-label={language.t("settings.checkpoints.title")}>
             <Icon name="branch" />
             <span class="label">{language.t("settings.checkpoints.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("display")}>
           <Tabs.Trigger value="display" aria-label={language.t("settings.display.title")}>
             <Icon name="eye" />
             <span class="label">{language.t("settings.display.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("autocomplete")}>
           <Tabs.Trigger value="autocomplete" aria-label={language.t("settings.autocomplete.title")}>
             <Icon name="code-lines" />
             <span class="label">{language.t("settings.autocomplete.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("notifications")}>
           <Tabs.Trigger value="notifications" aria-label={language.t("settings.notifications.title")}>
             <Icon name="circle-check" />
             <span class="label">{language.t("settings.notifications.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("context")}>
           <Tabs.Trigger value="context" aria-label={language.t("settings.context.title")}>
             <Icon name="server" />
             <span class="label">{language.t("settings.context.title")}</span>
           </Tabs.Trigger>
+          </Show>
 
+          <Show when={can("commitMessage")}>
           <Tabs.Trigger value="commitMessage" aria-label={language.t("settings.commitMessage.title")}>
             <Icon name="edit" />
             <span class="label">{language.t("settings.commitMessage.title")}</span>
           </Tabs.Trigger>
+          </Show>
           <Show when={indexing()}>
             <Tabs.Trigger value="indexing" aria-label={language.t("settings.indexing.title")}>
               <Icon name="database" />
               <span class="label">{language.t("settings.indexing.title")}</span>
             </Tabs.Trigger>
           </Show>
+          <Show when={can("experimental")}>
           <Tabs.Trigger value="experimental" aria-label={language.t("settings.experimental.title")}>
             <Icon name="settings-gear" />
             <span class="label">{language.t("settings.experimental.title")}</span>
           </Tabs.Trigger>
+          </Show>
           <Show when={sandboxing()}>
             <Tabs.Trigger value="sandboxing" aria-label={language.t("settings.sandboxing.title")}>
               <Icon name="shield" />
               <span class="label">{language.t("settings.sandboxing.title")}</span>
             </Tabs.Trigger>
           </Show>
+          <Show when={can("language")}>
           <Tabs.Trigger value="language" aria-label={language.t("settings.language.title")}>
             <Icon name="speech-bubble" />
             <span class="label">{language.t("settings.language.title")}</span>
           </Tabs.Trigger>
+          </Show>
+          <Show when={can("aboutKiloCode")}>
           <Tabs.Trigger value="aboutKiloCode" aria-label={language.t("settings.aboutKiloCode.title")}>
             <Icon name="help" />
             <span class="label">{language.t("settings.aboutKiloCode.title")}</span>
           </Tabs.Trigger>
+          </Show>
         </Tabs.List>
 
+        <Show when={can("models")}>
         <Tabs.Content value="models">
           <h3>{language.t("settings.models.title")}</h3>
           <ModelsTab />
         </Tabs.Content>
+        </Show>
+        <Show when={can("providers")}>
         <Tabs.Content value="providers">
           <h3>{language.t("settings.providers.title")}</h3>
           <ProvidersTab />
         </Tabs.Content>
+        </Show>
+        <Show when={can("agentBehaviour")}>
         <Tabs.Content value="agentBehaviour">
           <h3>{language.t("settings.agentBehaviour.title")}</h3>
           <AgentBehaviourTab
@@ -497,65 +556,87 @@ const Settings: Component<SettingsProps> = (props) => {
             onNavigationConsumed={props.onAgentBehaviourNavigationConsumed}
           />
         </Tabs.Content>
+        </Show>
+        <Show when={can("autoApprove")}>
         <Tabs.Content value="autoApprove">
           <h3>{language.t("settings.autoApprove.title")}</h3>
           <AutoApproveTab />
         </Tabs.Content>
-        <Show when={props.agentManagerSettings}>
+        </Show>
+        <Show when={props.agentManagerSettings && can("agentManager")}>
           <Tabs.Content value="agentManager">
             <h3>{language.t("agentManager.settings.title")}</h3>
             <AgentManagerTab projectId={props.agentManagerProjectId} />
           </Tabs.Content>
         </Show>
+        <Show when={can("browser")}>
         <Tabs.Content value="browser">
           <h3>{language.t("settings.webTools.title")}</h3>
           <BrowserTab />
         </Tabs.Content>
+        </Show>
+        <Show when={can("checkpoints")}>
         <Tabs.Content value="checkpoints">
           <h3>{language.t("settings.checkpoints.title")}</h3>
           <CheckpointsTab />
         </Tabs.Content>
+        </Show>
+        <Show when={can("display")}>
         <Tabs.Content value="display">
           <h3>{language.t("settings.display.title")}</h3>
           <DisplayTab />
         </Tabs.Content>
+        </Show>
+        <Show when={can("autocomplete")}>
         <Tabs.Content value="autocomplete">
           <h3>{language.t("settings.autocomplete.title")}</h3>
           <AutocompleteTab onNavigateToModels={() => onTabChange("models")} />
         </Tabs.Content>
+        </Show>
+        <Show when={can("notifications")}>
         <Tabs.Content value="notifications">
           <h3>{language.t("settings.notifications.title")}</h3>
           <NotificationsTab />
         </Tabs.Content>
+        </Show>
+        <Show when={can("context")}>
         <Tabs.Content value="context">
           <h3>{language.t("settings.context.title")}</h3>
           <ContextTab onNavigateToModels={() => onTabChange("models")} />
         </Tabs.Content>
+        </Show>
 
+        <Show when={can("commitMessage")}>
         <Tabs.Content value="commitMessage">
           <h3>{language.t("settings.commitMessage.title")}</h3>
           <CommitMessageTab />
         </Tabs.Content>
+        </Show>
         <Show when={indexing()}>
           <Tabs.Content value="indexing">
             <h3>{language.t("settings.indexing.title")}</h3>
             <IndexingTab />
           </Tabs.Content>
         </Show>
+        <Show when={can("experimental")}>
         <Tabs.Content value="experimental">
           <h3>{language.t("settings.experimental.title")}</h3>
           <ExperimentalTab />
         </Tabs.Content>
+        </Show>
         <Show when={sandboxing()}>
           <Tabs.Content value="sandboxing">
             <h3>{language.t("settings.sandboxing.title")}</h3>
             <SandboxingTab />
           </Tabs.Content>
         </Show>
+        <Show when={can("language")}>
         <Tabs.Content value="language">
           <h3>{language.t("settings.language.title")}</h3>
           <LanguageTab />
         </Tabs.Content>
+        </Show>
+        <Show when={can("aboutKiloCode")}>
         <Tabs.Content value="aboutKiloCode">
           <h3>{language.t("settings.aboutKiloCode.title")}</h3>
           <AboutKiloCodeTab
@@ -565,6 +646,7 @@ const Settings: Component<SettingsProps> = (props) => {
             onMigrationClick={props.onMigrationClick}
           />
         </Tabs.Content>
+        </Show>
 
         <Show when={search.searching()}>
           <SettingsSearchResults

@@ -1793,6 +1793,19 @@ export interface AgentManagerBrowserDevtoolsMessage {
   url: string
 }
 
+/**
+ * Result of a browser-host action that opens a tab or external URL.
+ *
+ * Emitted by the browser host adapter; shared chat UI ignores unknown message
+ * types, so an unrecognized `ok` result is harmless.
+ */
+export interface BrowserOpenResultMessage {
+  type: "browserOpenResult"
+  action: string
+  ok: boolean
+  error?: string
+}
+
 export type ExtensionMessage =
   | {
       type: "agentManager.resolveCommentResult" | "agentManager.unresolveCommentResult"
@@ -1818,6 +1831,7 @@ export type ExtensionMessage =
   | BrowserTabDevtoolsMessage
   | BrowserTabFrameMessage
   | BrowserTabCursorMessage
+  | BrowserOpenResultMessage
   | ReadyMessage
   | WorkspaceScopeMessage
   | FontSizeChangedMessage

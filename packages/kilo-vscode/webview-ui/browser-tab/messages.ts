@@ -6,8 +6,8 @@ import {
   browserInspectionEvent,
   browserScope,
   browserStateEvent,
-} from "../browser"
-import type { BrowserCommand, BrowserEvent } from "../browser"
+} from "../browser/api"
+import type { BrowserCommand, BrowserEvent } from "../browser/api"
 
 function unreachable(value: never): never {
   throw new Error(`Unhandled browser command: ${JSON.stringify(value)}`)

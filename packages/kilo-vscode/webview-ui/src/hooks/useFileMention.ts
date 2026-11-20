@@ -165,6 +165,7 @@ export function useFileMention(
   git?: Accessor<boolean>,
   worktrees?: Accessor<WorktreeReference[]>,
   modelKeys?: Accessor<Set<string>>,
+  terminal?: Accessor<boolean>,
 ): FileMention {
   const [mentionedPaths, setMentionedPaths] = createSignal<Set<string>>(new Set())
   const [mentionedSessions, setMentionedSessions] = createSignal<Map<string, SessionSearchItem>>(new Map())
@@ -209,7 +210,14 @@ export function useFileMention(
   }
   const results = (query: string, items: Array<FileSearchItem | string>) => {
     references()
-    return buildMentionResults(query, items, git?.() ?? true, worktrees !== undefined, sessionResults(query))
+    return buildMentionResults(
+      query,
+      items,
+      git?.() ?? true,
+      worktrees !== undefined,
+      sessionResults(query),
+      terminal?.() ?? true,
+    )
   }
   /** The file-ish entries of a result list, in the shape the builder accepts. */
   const files = (items: MentionResult[]): FileSearchItem[] =>

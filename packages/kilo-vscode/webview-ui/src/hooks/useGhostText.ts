@@ -34,7 +34,12 @@ export interface GhostText {
  *
  * Follows the legacy "syncAutocompleteTextVisibility" pattern.
  */
-export function useGhostText(vscode: VSCodeContext, getText: () => string, connected: () => boolean): GhostText {
+export function useGhostText(
+  vscode: VSCodeContext,
+  getText: () => string,
+  connected: () => boolean,
+  allowed: () => boolean = () => true,
+): GhostText {
   const [ghost, setGhost] = createSignal("")
   const [enabled, setEnabled] = createSignal(false)
 
@@ -66,7 +71,7 @@ export function useGhostText(vscode: VSCodeContext, getText: () => string, conne
   })
 
   onMount(() => {
-    vscode.postMessage({ type: "requestAutocompleteSettings" })
+    if (allowed()) vscode.postMessage({ type: "requestAutocompleteSettings" })
   })
 
   onCleanup(() => {
@@ -79,6 +84,10 @@ export function useGhostText(vscode: VSCodeContext, getText: () => string, conne
    * Call this from every handler instead of manually setting ghost text.
    */
   function syncInternal(textarea: HTMLTextAreaElement | undefined) {
+    if (!allowed()) {
+      setGhost("")
+      return
+    }
     // No saved suggestion → nothing to show
     if (!saved) {
       setGhost("")
@@ -155,6 +164,7 @@ export function useGhostText(vscode: VSCodeContext, getText: () => string, conne
   }
 
   function scheduleRequest(val: string, textarea: HTMLTextAreaElement | undefined) {
+    if (!allowed()) return
     // Clear saved suggestion on new input
     saved = ""
     savedPrefix = ""

@@ -1,9 +1,11 @@
-import { Component, createSignal, createMemo, createEffect, Switch, Match, Show, onMount, onCleanup } from "solid-js"
+import { Component, ParentComponent, createSignal, createMemo, createEffect, Switch, Match, Show, onMount, onCleanup } from "solid-js"
 import { DataProvider } from "@kilocode/kilo-ui/context/data"
 import { BoardNavigationProvider } from "@kilocode/kilo-ui/context/board-navigation"
 import Settings from "./components/settings/Settings"
 import ProfileView from "./components/profile/ProfileView"
 import { useVSCode } from "./context/vscode"
+import { useHost } from "./host/HostProvider"
+import { capabilityForView, hasCapability } from "./host/capabilities"
 import { useServer } from "./context/server"
 import { useProvider } from "./context/provider"
 import { WorkStyleProvider } from "./context/work-style"
@@ -61,6 +63,7 @@ const VALID_VIEWS = new Set<string>(["newTask", "history", "profile", "settings"
 export const DataBridge: Component<{ children: any }> = (props) => {
   const session = useSession()
   const vscode = useVSCode()
+  const bridge = useHost()
   const config = useConfig()
   const prov = useProvider()
   const server = useServer()
@@ -136,6 +139,7 @@ export const DataBridge: Component<{ children: any }> = (props) => {
   }
 
   const openAgent = (id: string, title?: string) => {
+    if (!hasCapability(bridge.capabilities, "subAgentViewer")) return
     const parent = session.sessions().find((item) => item.id === id)?.parentID ?? session.currentSessionID()
     openSubagent({
       sessionID: id,
@@ -261,9 +265,9 @@ export const DataBridge: Component<{ children: any }> = (props) => {
 }
 
 // Inner app component that uses the contexts
-const AppContent: Component = () => {
-  const [currentView, setCurrentView] = createSignal<ViewType>("newTask")
-  const [settingsTab, setSettingsTab] = createSignal<string | undefined>()
+const AppContent: Component<{ initialView?: ViewType; initialSettingsTab?: string }> = (props) => {
+  const [currentView, setCurrentView] = createSignal<ViewType>(props.initialView ?? "newTask")
+  const [settingsTab, setSettingsTab] = createSignal<string | undefined>(props.initialSettingsTab)
   const [settingsSubtab, setSettingsSubtab] = createSignal<string | undefined>()
   const [settingsFocus, setSettingsFocus] = createSignal<{ token: number; value: string } | undefined>()
   const [settingsSearch, setSettingsSearch] = createSignal(0)
@@ -273,18 +277,31 @@ const AppContent: Component = () => {
   const tabs = useLocalTabs()
   const server = useServer()
   const vscode = useVSCode()
+  const bridge = useHost()
+  const allowed = (name: Parameters<typeof hasCapability>[1]) => hasCapability(bridge.capabilities, name)
+  const capabilityAllows = (target: string) => {
+    const name = capabilityForView(target)
+    return name === undefined || allowed(name)
+  }
+  const view = () => (capabilityAllows(currentView()) ? currentView() : "newTask")
+  // Host messages can target a surface the current host cannot drive. Drop
+  // them before they switch the view or start an unsupported session.
+  const unsupported = (message: { type?: string; view?: string; sessionId?: string; sessionID?: string } | undefined) =>
+    (message?.type === "navigate" && !!message.view && !capabilityAllows(message.view)) ||
+    (message?.type === "openCloudSession" && !!message.sessionId && !allowed("cloud")) ||
+    (message?.type === "viewSubAgentSession" && !!message.sessionID && !allowed("subAgentViewer"))
   const activity = createMemo(() =>
     strongest([session.currentSessionID(), ...(tabs?.ids() ?? [])].map(session.activityFor)),
   )
   createEffect(() => vscode.postMessage({ type: "sessionActivity", state: activity() }))
   useSessionVisibility(() =>
-    !migration() && (currentView() === "newTask" || currentView() === "subAgentViewer")
+    !migration() && (view() === "newTask" || view() === "subAgentViewer")
       ? session.currentSessionID()
       : undefined,
   )
 
   const newTask = () => {
-    if (currentView() === "newTask") {
+    if (view() === "newTask") {
       window.dispatchEvent(new CustomEvent("newTaskRequest"))
       return
     }
@@ -311,7 +328,7 @@ const AppContent: Component = () => {
         newTask()
         break
       case "closeTask": {
-        if (currentView() !== "newTask") break
+        if (view() !== "newTask") break
         const id = tabs?.active()
         if (!tabs || !id) break
         tabs.close(id)
@@ -352,7 +369,7 @@ const AppContent: Component = () => {
   // Select the session tab next to the active one, like Agent Manager tab navigation.
   // The host sends the action to the sidebar and the active editor tab, so only the focused one acts.
   const step = (offset: -1 | 1) => {
-    if (!tabs || !document.hasFocus() || currentView() !== "newTask") return
+    if (!tabs || !document.hasFocus() || view() !== "newTask") return
     const id = adjacentTab(tabs.display(), tabs.active(), offset)
     if (!id) return
     tabs.select(id)
@@ -393,6 +410,7 @@ const AppContent: Component = () => {
   onMount(() => {
     const handler = (event: MessageEvent) => {
       const message = event.data
+      if (unsupported(message)) return
       if (message?.type === "action" && message.action) {
         console.log("[Kilo New] App: 🎬 action:", message.action)
         handleViewAction(message.action)
@@ -469,7 +487,7 @@ const AppContent: Component = () => {
         />
       </Show>
       <Show
-        when={migration()}
+        when={migration() && allowed("migration")}
         fallback={
           <Switch
             fallback={
@@ -481,7 +499,7 @@ const AppContent: Component = () => {
               />
             }
           >
-            <Match when={currentView() === "newTask"}>
+            <Match when={view() === "newTask"}>
               <ChatView
                 onSelectSession={handleSelectSession}
                 onShowHistory={() => setCurrentView("history")}
@@ -491,10 +509,10 @@ const AppContent: Component = () => {
                 emptyState={emptyState}
               />
             </Match>
-            <Match when={currentView() === "history"}>
+            <Match when={view() === "history"}>
               <HistoryView onSelectSession={handleSelectSession} onBack={() => setCurrentView("newTask")} />
             </Match>
-            <Match when={currentView() === "profile"}>
+            <Match when={view() === "profile"}>
               <ProfileView
                 profileData={server.profileData()}
                 providerUsage={server.providerUsage()}
@@ -506,23 +524,23 @@ const AppContent: Component = () => {
                 onRefreshProviderUsage={server.refreshProviderUsage}
               />
             </Match>
-            <Match when={currentView() === "settings"}>
+            <Match when={view() === "settings"}>
               <Settings
                 tab={settingsTab()}
                 subtab={settingsSubtab()}
                 focus={settingsFocus()}
                 agentManagerProjectId={agentManagerProjectId()}
-                agentManagerSettings={host.KILO_AGENT_MANAGER_SETTINGS === true}
+                agentManagerSettings={host.KILO_AGENT_MANAGER_SETTINGS === true && allowed("agentManager")}
                 onTabChange={setSettingsTab}
                 onAgentBehaviourNavigationConsumed={() => {
                   setSettingsSubtab(undefined)
                   setSettingsFocus(undefined)
                 }}
-                onMigrationClick={() => setMigration(true)}
+                onMigrationClick={allowed("migration") ? () => setMigration(true) : undefined}
                 searchRequest={settingsSearch()}
               />
             </Match>
-            <Match when={currentView() === "subAgentViewer"}>
+            <Match when={view() === "subAgentViewer"}>
               <ChatView readonly />
             </Match>
           </Switch>
@@ -534,15 +552,20 @@ const AppContent: Component = () => {
   )
 }
 
-const App: Component = () => {
+const App: Component<{
+  host?: ParentComponent
+  theme?: string
+  initialView?: ViewType
+  initialSettingsTab?: string
+}> = (props) => {
   return (
-    <ProviderShell.Root>
+    <ProviderShell.Root host={props.host} theme={props.theme}>
       <WorkStyleProvider>
         <ProviderShell.Session>
           <LocalTabsProvider>
             <ProviderShell.Chat>
               <DataBridge>
-                <AppContent />
+                <AppContent initialView={props.initialView} initialSettingsTab={props.initialSettingsTab} />
               </DataBridge>
             </ProviderShell.Chat>
           </LocalTabsProvider>

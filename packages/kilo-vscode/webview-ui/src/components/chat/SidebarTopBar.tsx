@@ -11,6 +11,9 @@ import { Component, For } from "solid-js"
 import { IconButton } from "@kilocode/kilo-ui/icon-button"
 import { Tooltip } from "@kilocode/kilo-ui/tooltip"
 import { useVSCode } from "../../context/vscode"
+import { useHost } from "../../host/HostProvider"
+import { hasCapability } from "../../host/capabilities"
+import type { HostCapability } from "../../host/HostBridge"
 import { useLanguage } from "../../context/language"
 import { TelemetryEventName } from "../../../../src/services/telemetry/types"
 
@@ -25,12 +28,14 @@ interface Action {
   key: string
   icon: "plus" | "history" | "organization" | "extensions" | "user" | "settings-gear"
   button: string
+  capability: HostCapability
   run: () => void
 }
 
 export const SidebarTopBar: Component<SidebarTopBarProps> = (props) => {
   const vscode = useVSCode()
   const language = useLanguage()
+  const host = useHost()
 
   // Mirrors the telemetry the native toolbar buttons used to record, so analytics aren't lost.
   const track = (button: string) =>
@@ -43,18 +48,45 @@ export const SidebarTopBar: Component<SidebarTopBarProps> = (props) => {
   const open = (type: "openAgentManager" | "openMarketplacePanel" | "openProfilePanel" | "openSettingsPanel") =>
     vscode.postMessage({ type })
 
-  const actions: Action[] = [
-    { key: "newTask", icon: "plus", button: "new_task", run: () => props.onNewTask() },
-    { key: "history", icon: "history", button: "history", run: () => props.onHistory() },
-    { key: "agentManager", icon: "organization", button: "agent_manager", run: () => open("openAgentManager") },
-    { key: "marketplace", icon: "extensions", button: "marketplace", run: () => open("openMarketplacePanel") },
-    { key: "profile", icon: "user", button: "profile", run: () => open("openProfilePanel") },
-    { key: "settings", icon: "settings-gear", button: "settings", run: () => open("openSettingsPanel") },
-  ]
+  const actions = (): Action[] => {
+    const list: Action[] = [
+      { key: "newTask", icon: "plus", button: "new_task", capability: "chat", run: () => props.onNewTask() },
+      { key: "history", icon: "history", button: "history", capability: "history", run: () => props.onHistory() },
+      {
+        key: "agentManager",
+        icon: "organization",
+        button: "agent_manager",
+        capability: "agentManager",
+        run: () => open("openAgentManager"),
+      },
+      {
+        key: "marketplace",
+        icon: "extensions",
+        button: "marketplace",
+        capability: "marketplace",
+        run: () => open("openMarketplacePanel"),
+      },
+      {
+        key: "profile",
+        icon: "user",
+        button: "profile",
+        capability: "profile",
+        run: () => open("openProfilePanel"),
+      },
+      {
+        key: "settings",
+        icon: "settings-gear",
+        button: "settings",
+        capability: "settings",
+        run: () => open("openSettingsPanel"),
+      },
+    ]
+    return list.filter((action) => hasCapability(host.capabilities, action.capability))
+  }
 
   return (
     <div class="sidebar-top-bar" role="toolbar" aria-label={language.t("sidebar.topBar.label")}>
-      <For each={actions}>
+      <For each={actions()}>
         {(action) => {
           const label = language.t(`sidebar.topBar.${action.key}`)
           return (

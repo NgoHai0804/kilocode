@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Kilo Browser Bridge",
+  "description": "Local-only CDP bridge for Kilo Browser Agent",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "permissions": ["debugger", "storage", "sidePanel", "tabs", "alarms"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Kilo Browser"
+  },
+  "side_panel": {
+    "default_path": "ui-dist/sidepanel.html"
+  },
+  "options_ui": {
+    "page": "ui-dist/settings.html",
+    "open_in_tab": true
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; worker-src 'self'; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'"
+  }
+}

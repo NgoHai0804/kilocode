@@ -12,7 +12,10 @@ export interface TerminalContext {
   resolveAttachment: (text: string, sessionID?: string, context?: string) => Promise<FileAttachment | undefined>
 }
 
-export function useTerminalContext(embedded?: EmbeddedResolver): TerminalContext {
+export function useTerminalContext(
+  embedded?: EmbeddedResolver,
+  enabled: () => boolean = () => true,
+): TerminalContext {
   const vscode = useVSCode()
   const requests = createContextRequests("terminal-context", 10_000, "Timed out while reading terminal output")
 
@@ -33,7 +36,7 @@ export function useTerminalContext(embedded?: EmbeddedResolver): TerminalContext
   })
 
   const resolveAttachment = async (text: string, sessionID?: string, context?: string) => {
-    if (!hasTerminalMention(text)) return undefined
+    if (!enabled() || !hasTerminalMention(text)) return undefined
 
     const content = await requests.request((requestId) => {
       if (!embedded) {

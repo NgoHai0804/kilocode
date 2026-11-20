@@ -1,0 +1,47 @@
+.kilo-pairing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--surface-base);
+  color: var(--text-base);
+}
+
+.kilo-pairing-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.kilo-pairing-error {
+  color: var(--v2-state-fg-danger, #e5484d);
+  font-size: var(--font-size-small);
+}
+
+.kilo-pairing-hint {
+  color: var(--text-weak);
+  font-size: var(--font-size-small);
+}
+
+.kilo-bridge-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: var(--font-size-small);
+  background: var(--surface-inset-base);
+  border-bottom: 1px solid var(--border-weak-base);
+  color: var(--text-base);
+}
+
+.kilo-bridge-banner[data-tone="error"] {
+  background: color-mix(in srgb, var(--v2-state-fg-danger, #e5484d) 14%, transparent);
+}
+
+.kilo-bridge-banner-text {
+  flex: 1;
+}
