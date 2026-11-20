@@ -45,6 +45,8 @@ opencode-dev
 UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
+# kilocode_change: local Kilo Browser Agent demo workspace (machine-specific)
+.kb-demo/
 
 # Telemetry ID
 telemetry-id
