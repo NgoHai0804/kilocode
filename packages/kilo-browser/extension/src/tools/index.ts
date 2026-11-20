@@ -1,6 +1,8 @@
 import type { Router } from "../rpc/router"
 import type { ToolContext } from "./context"
 import * as status from "./status"
+import * as tabs from "./tabs"
+import * as switchTab from "./switch_tab"
 import * as navigate from "./navigate"
 import * as snapshot from "./snapshot"
 import * as screenshot from "./screenshot"
@@ -18,6 +20,8 @@ export function registerTools(router: Router, ctx: ToolContext) {
     timeoutMs: 2000,
     idempotent: true,
   })
+  router.register("browser.tabs", (params, signal) => tabs.run(params, ctx, signal), { timeoutMs: 5000 })
+  router.register("browser.switch_tab", (params, signal) => switchTab.run(params, ctx, signal), { timeoutMs: 15000 })
   router.register("browser.navigate", (params, signal) => navigate.run(params, ctx, signal), { timeoutMs: 15000 })
   router.register("browser.snapshot", (params, signal) => snapshot.run(params, ctx, signal), {
     timeoutMs: 5000,

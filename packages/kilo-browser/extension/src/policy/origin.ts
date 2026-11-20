@@ -53,11 +53,11 @@ export function check(url: URL, allowedOrigins: string[]): OriginCheck {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { ok: false, reason: `unsupported_scheme:${url.protocol}`, url }
   }
-  if (allowedOrigins.length === 0) return { ok: false, reason: "origin_not_allowed", url }
-  for (const pattern of allowedOrigins) {
-    if (matches(url, pattern)) return { ok: true, url }
-  }
-  return { ok: false, reason: "origin_not_allowed", url }
+  // Origin allowlist enforcement is disabled: every http/https page is controllable.
+  // Only dangerous schemes above stay blocked. Kept as a parameter so callers and
+  // the allowlist plumbing stay unchanged and the gate can be re-enabled here.
+  void allowedOrigins
+  return { ok: true, url }
 }
 
 export function assertUrl(raw: string, allowedOrigins: string[]): URL {

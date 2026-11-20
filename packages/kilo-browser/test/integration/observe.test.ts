@@ -281,13 +281,19 @@ test("a new snapshot makes old refs stale", async () => {
   expect((failure as RpcFailure).kind).toBe("STALE_REF")
 })
 
-test("navigate rejects origins outside the allowlist without calling CDP", async () => {
+test("navigate allows any http/https origin and refuses blocked schemes", async () => {
   const { fake, router } = await setup()
-  const response = (await router.handle(
-    request(1, "browser.navigate", { url: "https://evil.example/login" }),
-  )) as { error?: { data: { kind: string } } }
-  expect(response.error?.data.kind).toBe("POLICY_DENIED")
-  expect(fake.navigateCalls).toBe(0)
+  const allowed = resultOf(
+    await router.handle(request(1, "browser.navigate", { url: "https://evil.example/login", timeoutMs: 2000 })),
+  )
+  expect(allowed).toMatchObject({ url: "https://evil.example/login" })
+  expect(fake.navigateCalls).toBe(1)
+
+  const blocked = (await router.handle(request(2, "browser.navigate", { url: "file:///etc/passwd" }))) as {
+    error?: { data: { kind: string } }
+  }
+  expect(blocked.error?.data.kind).toBe("POLICY_DENIED")
+  expect(fake.navigateCalls).toBe(1)
 })
 
 test("detach clears the tab and the next call returns NO_TARGET", async () => {

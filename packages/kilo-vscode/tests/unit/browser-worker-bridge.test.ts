@@ -32,14 +32,9 @@ test("forwards the claimed token used by a restored UI session", () => {
   expect(sent).toEqual([{ type: "kilo.pair", token, port: 4099 }])
 })
 
-test("forwards the selected tab", () => {
-  notifyWorker({ type: "kilo.attach", tabId: 7 })
-  expect(sent).toEqual([{ type: "kilo.attach", tabId: 7 }])
-})
-
 test("is a no-op outside the extension", () => {
   ;(globalThis as Globals).chrome = undefined
-  expect(() => notifyWorker({ type: "kilo.detach" })).not.toThrow()
+  expect(() => notifyWorker({ type: "kilo.pair", code: "123456", port: 4099 })).not.toThrow()
   expect(sent).toEqual([])
 })
 

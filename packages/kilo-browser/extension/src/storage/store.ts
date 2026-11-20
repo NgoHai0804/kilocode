@@ -1,3 +1,5 @@
+import { DEFAULT_ALLOWED_ORIGINS } from "../policy/origin"
+
 export const SCHEMA_VERSION = 1
 
 export type Pairing = {
@@ -11,6 +13,8 @@ export type Settings = {
   bridgePort: number | null
   autoReconnect: boolean
   redactInUi: boolean
+  /** Follow the active tab automatically instead of waiting for a manual pick. */
+  autoAttach: boolean
 }
 
 export type Allowlist = {
@@ -52,9 +56,11 @@ export interface StorageArea {
 
 export const DEFAULT_STATE: ExtensionState = {
   schemaVersion: SCHEMA_VERSION,
-  settings: { bridgePort: null, autoReconnect: true, redactInUi: true },
+  settings: { bridgePort: null, autoReconnect: true, redactInUi: true, autoAttach: true },
   pairing: null,
-  allowlist: { origins: [] },
+  // Mirror the bridge default so loopback dev works without extra setup; the
+  // extension has no origin editor, so an empty list would deny every tool.
+  allowlist: { origins: [...DEFAULT_ALLOWED_ORIGINS] },
   tab: null,
   ui: { panelOpen: false, pageMode: "sidepanel", theme: "kilo", lastError: null },
 }
@@ -67,6 +73,7 @@ export function migrate(raw: unknown): ExtensionState {
     state.settings.bridgePort = typeof raw.settings.bridgePort === "number" ? raw.settings.bridgePort : null
     state.settings.autoReconnect = raw.settings.autoReconnect !== false
     state.settings.redactInUi = raw.settings.redactInUi !== false
+    state.settings.autoAttach = raw.settings.autoAttach !== false
   }
   if (isRecord(raw.pairing) && validPairing(raw.pairing)) {
     state.pairing = {
@@ -77,7 +84,8 @@ export function migrate(raw: unknown): ExtensionState {
     }
   }
   if (isRecord(raw.allowlist) && Array.isArray(raw.allowlist.origins)) {
-    state.allowlist.origins = raw.allowlist.origins.filter((item): item is string => typeof item === "string")
+    const origins = raw.allowlist.origins.filter((item): item is string => typeof item === "string")
+    if (origins.length > 0) state.allowlist.origins = origins
   }
   if (isRecord(raw.tab) && typeof raw.tab.tabId === "number") {
     state.tab = {

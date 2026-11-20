@@ -59,6 +59,27 @@ test("one token is issued and bound to the extension", () => {
   expect(otherCode.ok).toBe(false)
 })
 
+test("pre-approved extension id pairs without a code and keeps the token", () => {
+  const pairing = new Pairing({ now: () => 0 })
+  const first = pairing.issue({ extensionId: "chrome-a", preApproved: true })
+  expect(first.ok).toBe(true)
+  if (!first.ok) return
+  expect(first.token).toMatch(/^[a-f0-9]{64}$/)
+
+  // A stale token from a previous bridge run is replaced, not rejected.
+  const again = pairing.issue({ extensionId: "chrome-a", token: "0".repeat(64), preApproved: true })
+  expect(again.ok).toBe(true)
+  if (again.ok) expect(again.token).toBe(first.token)
+
+  // Only the bound extension id may take over, even when pre-approved.
+  const other = pairing.issue({ extensionId: "chrome-b", preApproved: true })
+  expect(other.ok).toBe(false)
+
+  // A supplied code is still validated; bad codes never pass.
+  const badCode = pairing.issue({ extensionId: "chrome-a", pairCode: "000000", preApproved: true })
+  expect(badCode.ok).toBe(false)
+})
+
 test("rotate revokes the old token and code", () => {
   const pairing = new Pairing({ now: () => 0, ttlMs: 120_000 })
   const first = pairing.issue({ pairCode: pairing.code, extensionId: "chrome-a" })

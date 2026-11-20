@@ -11,10 +11,7 @@
  * and every call here is a no-op.
  */
 
-export type WorkerMessage =
-  | { type: "kilo.pair"; code?: string; port?: number; token?: string }
-  | { type: "kilo.attach"; tabId: number }
-  | { type: "kilo.detach" }
+export type WorkerMessage = { type: "kilo.pair"; code?: string; port?: number; token?: string }
 
 type ChromeRuntime = { sendMessage?(message: unknown): Promise<unknown> }
 

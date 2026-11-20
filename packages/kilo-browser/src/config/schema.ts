@@ -2,6 +2,8 @@ export type Policy = "allow" | "ask" | "deny"
 
 export type ToolName =
   | "status"
+  | "tabs"
+  | "switch_tab"
   | "navigate"
   | "snapshot"
   | "screenshot"
@@ -16,6 +18,8 @@ export type ToolName =
 
 export const TOOL_NAMES: ToolName[] = [
   "status",
+  "tabs",
+  "switch_tab",
   "navigate",
   "snapshot",
   "screenshot",
@@ -32,6 +36,8 @@ export const TOOL_NAMES: ToolName[] = [
 export const BROWSER_PERMISSIONS: Record<string, Policy> = {
   external_directory: "deny",
   browser_status: "allow",
+  browser_tabs: "allow",
+  browser_switch_tab: "allow",
   browser_navigate: "allow",
   browser_snapshot: "allow",
   browser_screenshot: "allow",
@@ -181,6 +187,8 @@ export const DEFAULT_CONFIG: BrowserConfig = {
   },
   tools: {
     status: "allow",
+    tabs: "allow",
+    switch_tab: "allow",
     navigate: "allow",
     snapshot: "allow",
     screenshot: "allow",

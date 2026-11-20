@@ -69,7 +69,13 @@ export class BridgeTransport {
 
   constructor(options: TransportOptions) {
     this.options = options
-    this.timers = options.timers ?? { setTimeout, clearTimeout }
+    // Wrap the global timers: calling the native `setTimeout`/`clearTimeout`
+    // detached and stored on an object throws "Illegal invocation" in a
+    // service worker, which silently killed the hello handshake.
+    this.timers = options.timers ?? {
+      setTimeout: (handler, ms) => globalThis.setTimeout(handler, ms),
+      clearTimeout: (timer) => globalThis.clearTimeout(timer),
+    }
     this.now = options.now ?? Date.now
     this.random = options.random ?? Math.random
     this.pairCode = options.pairCode

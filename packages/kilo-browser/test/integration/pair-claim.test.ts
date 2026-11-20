@@ -77,6 +77,7 @@ test(
       const beforeBody = await body(before)
       expect(beforeBody.port).toBe(portOf(bridge))
       expect(beforeBody.requiresPair).toBe(true)
+      expect(beforeBody.autoPair).toBe(true)
       expect(beforeBody.token).toBeUndefined()
 
       const claimed = await claim(portOf(bridge), { pairCode: bridge.pairCode, extensionId: "kilotest" })
@@ -142,8 +143,12 @@ test(
       const wrongId = await claim(portOf(bridge), { pairCode: bridge.pairCode, extensionId: "other" })
       expect(wrongId.status).toBe(403)
 
-      const missing = await claim(portOf(bridge), { extensionId: "kilotest" })
-      expect(missing.status).toBe(400)
+      // An allowlisted extension id is pre-approved: a code-less claim still
+      // issues the token (no six-digit code required).
+      const preApproved = await claim(portOf(bridge), { extensionId: "kilotest" })
+      expect(preApproved.status).toBe(200)
+      const preApprovedBody = await body(preApproved)
+      expect(preApprovedBody.token).toBe(bridge.token())
 
       const url = "http://127.0.0.1/pair/claim"
       const offLoopback = await handle(

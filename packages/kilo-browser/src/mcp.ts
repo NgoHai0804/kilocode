@@ -26,7 +26,8 @@ Reading the page:
 - browser_status reports whether a tab is attached and the bridge is paired; call it first when a tool reports a pairing or target error.
 
 Acting on the page:
-- browser_navigate opens a URL (origin allowlist applies).
+- browser_tabs lists the browser's open tabs (id, url, title, active, attached, attachable). browser_switch_tab focuses and attaches a specific tab by id so later tools act on it instead of auto-following the active tab.
+- browser_navigate opens a URL (any http/https URL; only dangerous schemes like file:// are refused).
 - browser_click and browser_type target an element by snapshot ref or CSS selector; browser_press sends a key; browser_reload reloads; browser_wait_for waits for text, a selector, or a URL.
 - browser_eval runs JavaScript but is denied by default and needs user approval. Prefer browser_snapshot when it is enough.
 
@@ -39,8 +40,18 @@ Loop and rules:
 export const TOOLS: McpTool[] = [
   tool("status", "Report the browser bridge state: whether an extension is paired, which tab is attached, and whether the Kilo server is healthy. Call this first when another tool reports a pairing or target error.", object({})),
   tool(
+    "tabs",
+    "List the browser's open tabs. Each entry has id, url, title, active, attached and attachable. Use the id with browser_switch_tab to drive a specific tab.",
+    object({}),
+  ),
+  tool(
+    "switch_tab",
+    "Switch the agent to a specific open tab by id: focus and activate it, then attach so the browser_* tools act on it. Get id from browser_tabs.",
+    object({ tabId: { type: "number", minimum: 1, description: "Tab id from browser_tabs." } }, ["tabId"]),
+  ),
+  tool(
     "navigate",
-    "Open a URL in the attached tab. Only origin-allowlisted URLs are allowed. Returns the final url, title, and status.",
+    "Open a URL in the attached tab. Any http/https URL is allowed; dangerous schemes (file://, chrome://, javascript:, data:) are refused. Returns the final url, title, and status.",
     object({
       url: { type: "string", description: "Absolute http(s) URL." },
       waitUntil: { type: "string", enum: ["load", "domcontentloaded", "networkidle"] },

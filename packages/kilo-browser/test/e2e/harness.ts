@@ -142,11 +142,16 @@ export async function startFixture(): Promise<Fixture> {
   }
 }
 
-export async function until(predicate: () => boolean | Promise<boolean>, timeoutMs = 10000, label = "condition"): Promise<void> {
+export async function until(
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs = 10000,
+  label = "condition",
+  intervalMs = 100,
+): Promise<void> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     if (await predicate()) return
-    await Bun.sleep(100)
+    await Bun.sleep(intervalMs)
   }
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${label}`)
 }

@@ -3,7 +3,6 @@ import App from "../src/App"
 import { BrowserHostProvider } from "./BrowserHostProvider"
 import { ConnectionBanner } from "./ConnectionBanner"
 import { PairingScreen } from "./PairingScreen"
-import { TabPicker } from "./TabPicker"
 import { notifyWorker } from "./worker-bridge"
 import {
   BRIDGE_ERROR_EVENT,
@@ -105,7 +104,6 @@ export const BrowserRoot: Component<BrowserRootProps> = (props) => {
       }
     >
       <ConnectionBanner state={state()} error={error()} onPairAgain={pairAgain} onRetry={retry} />
-      <TabPicker />
       <App
         host={BrowserHostProvider}
         theme={props.theme ?? BROWSER_THEME}

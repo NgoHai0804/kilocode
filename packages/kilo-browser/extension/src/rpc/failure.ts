@@ -31,6 +31,10 @@ export function cancelled(reason = "cancelled"): RpcFailure {
   return new RpcFailure("CANCELLED", { reason })
 }
 
+export function unavailable(reason = "unavailable"): RpcFailure {
+  return new RpcFailure("INTERNAL_ERROR", { reason })
+}
+
 export function policyDenied(reason: string, url?: string): RpcFailure {
   return new RpcFailure("POLICY_DENIED", url ? { reason, url } : { reason })
 }

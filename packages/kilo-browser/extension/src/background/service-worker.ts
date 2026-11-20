@@ -9,6 +9,9 @@ import { registerTools } from "../tools"
 import { BridgeTransport, type ConnectionState } from "../transport/ws"
 import { ApprovalRegistry } from "../approval/registry"
 import { pairRequest } from "./pair-message"
+import { isAttachable, pickAttachTab, type ActiveTab } from "./attach"
+import type { TabControl, TabSummary } from "../tools/context"
+import { invalid, noTarget } from "../rpc/failure"
 import { RpcFailure } from "../../../src/protocol/rpc"
 import type { Json, TabInfo } from "../cdp/types"
 import { errorMessage, num, record, text } from "../util/value"
@@ -47,6 +50,45 @@ const transport = new BridgeTransport({
   onState: handleState,
   onEvent: log,
 })
+// Read every open tab and drive the agent onto a chosen one. Switching also
+// activates the tab so auto-attach (which follows the active tab) agrees with
+// the manual choice instead of immediately snapping back.
+const tabControl: TabControl = {
+  async list(): Promise<TabSummary[]> {
+    const open = await chrome.tabs.query({})
+    const tabs: TabSummary[] = []
+    for (const tab of open) {
+      if (typeof tab.id !== "number") continue
+      tabs.push({
+        id: tab.id,
+        windowId: tab.windowId,
+        url: tab.url,
+        title: tab.title,
+        active: tab.active === true,
+        attached: session.attached && session.tabId === tab.id,
+        attachable: isAttachable(tab.url),
+      })
+    }
+    return tabs
+  },
+  async switchTo(tabId: number): Promise<TabSummary> {
+    const tab = await chrome.tabs.get(tabId).catch(() => undefined)
+    if (!tab || typeof tab.id !== "number") throw noTarget("tab_not_found")
+    if (!isAttachable(tab.url)) throw invalid("tabId", "tab is a browser-internal page and cannot be driven")
+    await chrome.tabs.update(tabId, { active: true })
+    if (typeof tab.windowId === "number") {
+      try {
+        await chrome.windows.update(tab.windowId, { focused: true })
+      } catch (err) {
+        log({ type: "tab.focus_failed", data: { tabId, error: errorMessage(err) } })
+      }
+    }
+    suppressAttachUntil = 0
+    const info = await ensureTab(tabId)
+    return { id: info.id, url: info.url, title: info.title, active: true, attached: info.attached, attachable: true }
+  },
+}
+
 registerTools(router, {
   session,
   refs,
@@ -55,8 +97,17 @@ registerTools(router, {
   allowlist: () => store.allowlist(),
   paired: () => transport.connected,
   approval: approvals,
+  tabs: tabControl,
   onEvent: log,
 })
+
+// Ensure the active tab is attached before every tool call so auto-attach does
+// not depend on tab events firing: the agent gets the page it is looking at.
+const dispatch = router.handle.bind(router)
+router.handle = async (message: unknown) => {
+  await ensureAutoAttach()
+  return dispatch(message)
+}
 
 let booting: Promise<void> | undefined
 let suppressAttachUntil = 0
@@ -85,11 +136,16 @@ async function doBoot() {
   } catch (err) {
     log({ type: "sidepanel.failed", data: { error: errorMessage(err) } })
   }
-  if (state.tab) await restoreTab(state.tab.tabId)
+  if (state.settings.autoAttach) await syncActiveTab()
+  else if (state.tab) await restoreTab(state.tab.tabId)
   await transport.start()
 }
 
 async function restoreTab(tabId: number) {
+  await attachSafe(tabId, "tab.restore_failed")
+}
+
+async function attachSafe(tabId: number, tag: string) {
   try {
     await ensureTab(tabId)
   } catch (err) {
@@ -98,9 +154,40 @@ async function restoreTab(tabId: number) {
       await store.patch({ ui: { lastError: "DEVTOOLS_CONFLICT" } })
       return
     }
-    log({ type: "tab.restore_failed", data: { tabId, error: errorMessage(err) } })
+    log({ type: tag, data: { tabId, error: errorMessage(err) } })
     await store.setTab(null)
   }
+}
+
+async function activeTab(): Promise<ActiveTab | null> {
+  const focused = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  const tabs = focused.length > 0 ? focused : await chrome.tabs.query({ active: true })
+  for (const tab of tabs) {
+    if (typeof tab.id !== "number") continue
+    if (!isAttachable(tab.url)) continue
+    return { tabId: tab.id, windowId: tab.windowId }
+  }
+  return null
+}
+
+/** Auto-attach to the active tab so the agent can drive every page unasked. */
+async function syncActiveTab() {
+  const state = await store.current()
+  if (!state.settings.autoAttach) return
+  if (Date.now() < suppressAttachUntil) return
+  const decision = pickAttachTab({ autoAttach: true, selected: state.tab, active: await activeTab() })
+  if (!decision) return
+  await attachSafe(decision.tabId, "tab.auto_attach_failed")
+}
+
+/** Attach the active tab on demand, before serving a tool call. */
+async function ensureAutoAttach() {
+  const state = await store.current()
+  if (!state.settings.autoAttach) return
+  const active = await activeTab()
+  if (!active) return
+  if (session.attached && session.tabId === active.tabId) return
+  await attachSafe(active.tabId, "tab.ensure_attach_failed")
 }
 
 async function ensureTab(tabId: number): Promise<TabInfo> {
@@ -124,19 +211,13 @@ async function keepalive() {
       log({ type: "ws.connect_failed", data: { error: errorMessage(err) } })
     }
   }
+  if (state.settings.autoAttach) {
+    await syncActiveTab()
+    return
+  }
   if (!state.tab) return
   if (Date.now() < suppressAttachUntil) return
-  try {
-    await ensureTab(state.tab.tabId)
-  } catch (err) {
-    if (err instanceof RpcFailure && err.kind === "DEVTOOLS_CONFLICT") {
-      suppressAttachUntil = Date.now() + 60_000
-      await store.patch({ ui: { lastError: "DEVTOOLS_CONFLICT" } })
-      return
-    }
-    log({ type: "tab.keepalive_failed", data: { tabId: state.tab.tabId, error: errorMessage(err) } })
-    await store.setTab(null)
-  }
+  await attachSafe(state.tab.tabId, "tab.keepalive_failed")
 }
 
 function shouldConnect() {
@@ -166,17 +247,6 @@ async function handleMessage(message: unknown): Promise<Json> {
       tab: session.tab ?? null,
       cdp: session.attached,
     }
-  }
-  if (type === "kilo.attach") {
-    const tabId = num(body.tabId)
-    if (tabId === undefined) return { ok: false, error: "tabId" }
-    const info = await ensureTab(tabId)
-    return { ok: true, tab: info }
-  }
-  if (type === "kilo.detach") {
-    await session.detach()
-    await store.setTab(null)
-    return { ok: true }
   }
   if (type === "kilo.approval") {
     const decision = text(body.decision)
@@ -240,6 +310,31 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   void handleTabRemoved(tabId).catch((err: unknown) => {
     log({ type: "tab.remove_failed", data: { tabId, error: errorMessage(err) } })
+  })
+})
+chrome.tabs.onActivated.addListener(() => {
+  void syncActiveTab().catch((err: unknown) => {
+    log({ type: "tab.activated_failed", data: { error: errorMessage(err) } })
+  })
+})
+// A freshly activated tab is often still `about:blank` (a blocked scheme), so
+// the activation handler skips it. Without this listener the later navigation
+// to a real URL never re-triggers a pick and the tab is never auto-attached.
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (!tab.active) return
+  if (changeInfo.url === undefined && changeInfo.status !== "complete") return
+  void syncActiveTab().catch((err: unknown) => {
+    log({ type: "tab.updated_failed", data: { error: errorMessage(err) } })
+  })
+})
+// A brand-new tab is often still `pendingUrl` when `onActivated` fires, and a
+// fresh navigation can land after it. Re-sync when the active tab settles so
+// auto-attach does not miss the tab the user is looking at.
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (!tab.active) return
+  if (changeInfo.status !== "complete" && changeInfo.url === undefined) return
+  void syncActiveTab().catch((err: unknown) => {
+    log({ type: "tab.updated_failed", data: { error: errorMessage(err) } })
   })
 })
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

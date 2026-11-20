@@ -28,6 +28,12 @@ export function integer(value: unknown, field: string, fallback: number, min: nu
   return optionalInteger(value, field, min, max) ?? fallback
 }
 
+export function requiredInteger(value: unknown, field: string, min: number, max: number): number {
+  const parsed = optionalInteger(value, field, min, max)
+  if (parsed === undefined) throw invalid(field, "must be an integer")
+  return parsed
+}
+
 export function enumValue<T extends string>(value: unknown, field: string, allowed: readonly T[], fallback: T): T {
   if (value === undefined || value === null) return fallback
   if (typeof value !== "string" || !allowed.includes(value as T)) {

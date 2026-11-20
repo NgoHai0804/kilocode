@@ -12,6 +12,12 @@ export type PairingInput = {
   pairCode?: string
   token?: string
   extensionId: string
+  /**
+   * The extension id is pre-approved (listed in `browser.allowedExtensionIds`),
+   * so a pair code is not required. When no code is supplied the current token
+   * is issued directly, keeping the token boundary while skipping the code.
+   */
+  preApproved?: boolean
 }
 
 export type PairingResult =
@@ -67,6 +73,19 @@ export class Pairing {
 
   issue(input: PairingInput): PairingResult {
     const time = this.now()
+
+    // Pre-approved extension ids skip the code but still receive the token, so
+    // the HTTP/tool boundary keeps its Bearer check. A supplied code is still
+    // validated (bad codes can never be papered over), and a stale token from a
+    // previous bridge run is replaced instead of locking the extension out.
+    if (input.preApproved === true && input.pairCode === undefined) {
+      if (this.extensionId !== undefined && this.extensionId !== input.extensionId) {
+        return { ok: false, kind: "UNAUTHORIZED" }
+      }
+      const reused = this.extensionId !== undefined
+      this.extensionId = input.extensionId
+      return { ok: true, token: this.token, reused }
+    }
 
     if (input.token !== undefined) {
       if (!sameSecret(input.token, this.token)) return { ok: false, kind: "UNAUTHORIZED" }

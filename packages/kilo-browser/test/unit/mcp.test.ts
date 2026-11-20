@@ -3,6 +3,8 @@ import { SERVER_INSTRUCTIONS, TOOLS } from "../../src/mcp"
 
 const NAMES = [
   "status",
+  "tabs",
+  "switch_tab",
   "navigate",
   "snapshot",
   "screenshot",
@@ -24,7 +26,7 @@ test("shim advertises browser-assistant instructions", () => {
   expect(SERVER_INSTRUCTIONS).toContain("browser_*")
 })
 
-test("shim exposes the 12 browser tools with descriptions", () => {
+test("shim exposes the 14 browser tools with descriptions", () => {
   expect(TOOLS.map((tool) => tool.name).sort()).toEqual([...NAMES].sort())
   expect(new Set(TOOLS.map((tool) => tool.name)).size).toBe(TOOLS.length)
   for (const tool of TOOLS) {

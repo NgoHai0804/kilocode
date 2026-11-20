@@ -103,7 +103,7 @@ export type PairClaimFailure = {
 
 export type ClaimResult = PairClaimSuccess | PairClaimFailure
 
-export type HintResult = { ok: true; port: number; requiresPair: boolean } | PairClaimFailure
+export type HintResult = { ok: true; port: number; requiresPair: boolean; autoPair: boolean } | PairClaimFailure
 
 function resolveFetch(fetchImpl?: FetchLike): FetchLike {
   if (fetchImpl) return fetchImpl
@@ -143,23 +143,27 @@ export async function requestHint(options: { port: number; fetch?: FetchLike }):
   if (!response.ok) return failure(response.status, response.status >= 500 ? "SERVER" : "UNKNOWN", "hint failed")
   const body = record(await response.json())
   const port = typeof body?.port === "number" ? body.port : options.port
-  return { ok: true, port, requiresPair: body?.requiresPair === true }
+  return { ok: true, port, requiresPair: body?.requiresPair === true, autoPair: body?.autoPair === true }
 }
 
 export async function requestClaim(options: {
   port: number
-  code: string
+  code?: string
   extensionId: string
   fetch?: FetchLike
+  /** The bridge pre-approves this extension id, so no pair code is required. */
+  auto?: boolean
 }): Promise<ClaimResult> {
-  if (!isPairCode(options.code)) return failure(0, "BAD_CODE", "pair code must be six digits")
+  if (!options.auto && !isPairCode(options.code ?? "")) return failure(0, "BAD_CODE", "pair code must be six digits")
   const send = resolveFetch(options.fetch)
+  const payload: Record<string, string> = { extensionId: options.extensionId }
+  if (options.code) payload.pairCode = options.code
   let response: FetchResponse
   try {
     response = await send(bridgeUrl(options.port, "/pair/claim"), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pairCode: options.code, extensionId: options.extensionId }),
+      body: JSON.stringify(payload),
     })
   } catch (err) {
     return failure(0, "NETWORK", err instanceof Error ? err.message : "network error")
@@ -199,7 +203,7 @@ function defaultSleep(ms: number): Promise<void> {
 }
 
 export async function claimWithRetry(
-  options: { port: number; code: string; extensionId: string; fetch?: FetchLike },
+  options: { port: number; code?: string; extensionId: string; fetch?: FetchLike; auto?: boolean },
   retry: ClaimRetryOptions = {},
 ): Promise<ClaimResult> {
   const attempts = Math.max(1, retry.attempts ?? 3)

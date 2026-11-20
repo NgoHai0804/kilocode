@@ -64,9 +64,33 @@ test("stores, reads, and clears the pairing token and port", () => {
   expect(readPort(storage)).toBeUndefined()
 })
 
-test("hint reports the resolved port without secrets", async () => {
-  const result = await requestHint({ port: 7373, fetch: jsonFetch(200, { ok: true, port: 8888, requiresPair: true }) })
-  expect(result).toEqual({ ok: true, port: 8888, requiresPair: true })
+test("hint reports the resolved port and auto-pair flag without secrets", async () => {
+  const result = await requestHint({
+    port: 7373,
+    fetch: jsonFetch(200, { ok: true, port: 8888, requiresPair: true, autoPair: true }),
+  })
+  expect(result).toEqual({ ok: true, port: 8888, requiresPair: true, autoPair: true })
+})
+
+test("auto claim skips the code and a manual claim still requires one", async () => {
+  const auto = await requestClaim({
+    port: 7373,
+    extensionId: "ext-1",
+    auto: true,
+    fetch: jsonFetch(200, { ok: true, token: "tok", port: 7373, protocolVersion: "1.0", bridgeVersion: "0.1.0" }),
+  })
+  expect(auto.ok).toBe(true)
+  if (auto.ok) expect(auto.token).toBe("tok")
+
+  let calls = 0
+  const fetchImpl: FetchLike = async () => {
+    calls += 1
+    return { ok: true, status: 200, json: async () => ({ ok: true, token: "t" }) }
+  }
+  const rejected = await requestClaim({ port: 7373, extensionId: "ext-1", fetch: fetchImpl })
+  expect(rejected.ok).toBe(false)
+  if (!rejected.ok) expect(rejected.kind).toBe("BAD_CODE")
+  expect(calls).toBe(0)
 })
 
 test("claim returns the token and version envelope", async () => {

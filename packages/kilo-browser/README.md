@@ -64,6 +64,17 @@ Find `<id>` on the extensions page, or in the service worker URL under "Inspect 
 Enter the 6-digit pair code from the bridge in the side panel pairing gate. The UI claims the token via
 `POST /pair/claim` and stores it in `chrome.storage.local`/localStorage; the token is never shown in logs.
 
+If you do not want to type a code every time, add the extension id to `browser.allowedExtensionIds` in
+`.kilo/kilo-browser.json` (find the id on `chrome://extensions`). The bridge then **pre-approves** that
+extension: the pairing gate shows **Connect** instead of a code field, and a code-less connect still returns
+the same token. Only that extension id is trusted — the token boundary stays in place.
+
+## Tab attachment
+
+By default the extension **auto-attaches to the active tab** and follows `chrome.tabs.onActivated`, so the
+agent can drive whatever page you are looking at. Set `autoAttach: false` in the extension storage to stop
+following the active tab; the extension then stays on the tab it last attached to.
+
 ## Permissions
 
 The extension requests, and the bridge enforces, the minimum needed:

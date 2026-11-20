@@ -57,21 +57,7 @@ export const PairingScreen: Component<PairingScreenProps> = (props) => {
   const [code, setCode] = createSignal("")
   const [busy, setBusy] = createSignal(false)
   const [hint, setHint] = createSignal("")
-
-  const refreshHint = async (value: number) => {
-    const result = await requestHint({ port: value })
-    if (!result.ok) {
-      setHint("")
-      return
-    }
-    if (result.port) setPort(String(result.port))
-    setHint(result.requiresPair ? "Waiting for a valid pair code." : "This bridge is already paired to an extension.")
-  }
-
-  onMount(() => {
-    const value = parsePort(port())
-    if (value) void refreshHint(value)
-  })
+  const [autoPair, setAutoPair] = createSignal(false)
 
   const submit = async () => {
     const value = parsePort(port())
@@ -79,25 +65,62 @@ export const PairingScreen: Component<PairingScreenProps> = (props) => {
       setState((current) => reducePairing(current, { type: "failure", error: "Enter the bridge port." }))
       return
     }
-    if (!isPairCode(code())) {
+    const auto = autoPair()
+    if (!auto && !isPairCode(code())) {
       setState((current) => reducePairing(current, { type: "failure", error: "The pair code is six digits." }))
       return
     }
+    if (busy()) return
     setState((current) => reducePairing(current, { type: "submit", port: value }))
     setBusy(true)
-    const result = await claimWithRetry({ port: value, code: code(), extensionId: extensionId() })
+    const result = await claimWithRetry({
+      port: value,
+      code: auto ? undefined : code(),
+      extensionId: extensionId(),
+      auto,
+    })
     setBusy(false)
     if (result.ok) {
       storePairing(props.storage, result.token, result.port)
       // The UI owns the claim, but only the service worker can open the tool
-      // WebSocket the browser_* tools use; hand it the code and port.
-      notifyWorker({ type: "kilo.pair", code: code(), port: result.port })
+      // WebSocket the browser_* tools use; hand it the token (or code) and port.
+      notifyWorker(
+        auto
+          ? { type: "kilo.pair", token: result.token, port: result.port }
+          : { type: "kilo.pair", code: code(), port: result.port },
+      )
       setState((current) => reducePairing(current, { type: "success", port: result.port }))
       props.onPaired(result.token, result.port)
       return
     }
     setState((current) => reducePairing(current, { type: "failure", error: claimError(result) }))
   }
+
+  const refreshHint = async (value: number) => {
+    const result = await requestHint({ port: value })
+    if (!result.ok) {
+      setHint("")
+      setAutoPair(false)
+      return
+    }
+    if (result.port) setPort(String(result.port))
+    setAutoPair(result.autoPair)
+    if (!result.requiresPair) {
+      setHint("This bridge is already paired to an extension.")
+      return
+    }
+    if (result.autoPair) {
+      setHint("This bridge trusts this extension. Connecting without a code...")
+      if (!busy()) void submit()
+      return
+    }
+    setHint("Waiting for a valid pair code.")
+  }
+
+  onMount(() => {
+    const value = parsePort(port())
+    if (value) void refreshHint(value)
+  })
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter" && !busy()) void submit()
@@ -109,30 +132,38 @@ export const PairingScreen: Component<PairingScreenProps> = (props) => {
         <Card class="kilo-pairing-card">
           <CardTitle>Connect to the Kilo bridge</CardTitle>
           <CardDescription>
-            Start kilo-browser in your project, then enter the bridge port and the six-digit pair code.
+            {autoPair()
+              ? "This bridge trusts this extension, so no pair code is needed. Confirm the port and connect."
+              : "Start kilo-browser in your project, then enter the bridge port and the six-digit pair code."}
           </CardDescription>
           <TextField
             label="Bridge port"
             inputMode="numeric"
             value={port()}
-            onChange={setPort}
+            onChange={(value) => {
+              setPort(value)
+              const parsed = parsePort(value)
+              if (parsed) void refreshHint(parsed)
+            }}
             placeholder="7373"
             disabled={busy()}
           />
-          <TextField
-            label="Pair code"
-            inputMode="numeric"
-            value={code()}
-            onChange={setCode}
-            onKeyDown={onKeyDown}
-            placeholder="123456"
-            maxLength={6}
-            disabled={busy()}
-          />
+          <Show when={!autoPair()}>
+            <TextField
+              label="Pair code"
+              inputMode="numeric"
+              value={code()}
+              onChange={setCode}
+              onKeyDown={onKeyDown}
+              placeholder="123456"
+              maxLength={6}
+              disabled={busy()}
+            />
+          </Show>
           <Show when={state().error}>{(message) => <div class="kilo-pairing-error">{message()}</div>}</Show>
           <Show when={hint()}>{(text) => <div class="kilo-pairing-hint">{text()}</div>}</Show>
           <Button variant="primary" onClick={() => void submit()} disabled={busy()}>
-            {busy() ? "Pairing..." : "Pair"}
+            {busy() ? "Connecting..." : autoPair() ? "Connect" : "Pair"}
           </Button>
         </Card>
       </div>

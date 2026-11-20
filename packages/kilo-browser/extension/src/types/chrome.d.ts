@@ -63,8 +63,10 @@ interface ChromeMessageSender {
 interface ChromeTabsApi {
   get(tabId: number): Promise<ChromeTab>
   query(queryInfo: { active?: boolean; currentWindow?: boolean; lastFocusedWindow?: boolean }): Promise<ChromeTab[]>
+  update(tabId: number, updateProperties: { active?: boolean }): Promise<ChromeTab>
   onRemoved: ChromeEvent<[tabId: number, removeInfo: { windowId: number; isWindowClosing: boolean }]>
   onActivated: ChromeEvent<[activeInfo: { tabId: number; windowId: number }]>
+  onUpdated: ChromeEvent<[tabId: number, changeInfo: { status?: string; url?: string }, tab: ChromeTab]>
 }
 
 interface ChromeRuntimeApi {
@@ -76,6 +78,16 @@ interface ChromeRuntimeApi {
   getURL(path: string): string
   getManifest(): { version: string }
   sendMessage(message: unknown): Promise<unknown>
+}
+
+interface ChromeWindow {
+  id?: number
+  focused?: boolean
+}
+
+interface ChromeWindowsApi {
+  update(windowId: number, updateInfo: { focused?: boolean }): Promise<ChromeWindow>
+  getLastFocused(): Promise<ChromeWindow>
 }
 
 interface ChromeSidePanelApi {
@@ -91,6 +103,7 @@ interface ChromeApi {
   debugger: ChromeDebuggerApi
   alarms: ChromeAlarmsApi
   tabs: ChromeTabsApi
+  windows: ChromeWindowsApi
   runtime: ChromeRuntimeApi
   sidePanel: ChromeSidePanelApi
   action: ChromeActionApi

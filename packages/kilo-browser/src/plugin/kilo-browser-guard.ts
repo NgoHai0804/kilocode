@@ -1,6 +1,6 @@
 import path from "node:path"
 import { load } from "../config/load"
-import { DEFAULT_CONFIG, type BrowserConfig, type ToolName } from "../config/schema"
+import { DEFAULT_CONFIG, TOOL_NAMES, type BrowserConfig, type ToolName } from "../config/schema"
 import { createLogger, type JsonlLogger, type LogLevel } from "../log/jsonl"
 import { inside } from "../policy/jail"
 import { redactWithHits } from "../policy/redact"
@@ -203,23 +203,7 @@ export default async function guard(ctx: GuardContext): Promise<Hooks> {
 function browserName(key: string): ToolName | undefined {
   const raw = key.startsWith("browser_") ? key.slice("browser_".length) : key.startsWith("browser.") ? key.slice("browser.".length) : undefined
   if (!raw) return undefined
-  if (
-    raw === "status" ||
-    raw === "navigate" ||
-    raw === "snapshot" ||
-    raw === "screenshot" ||
-    raw === "console" ||
-    raw === "network" ||
-    raw === "click" ||
-    raw === "type" ||
-    raw === "press" ||
-    raw === "reload" ||
-    raw === "wait_for" ||
-    raw === "eval"
-  ) {
-    return raw
-  }
-  return undefined
+  return (TOOL_NAMES as string[]).includes(raw) ? (raw as ToolName) : undefined
 }
 
 function isFileTool(key: string) {

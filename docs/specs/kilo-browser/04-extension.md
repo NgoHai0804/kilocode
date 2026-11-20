@@ -63,7 +63,7 @@ Không có `web_accessible_resources`, không load script từ CDN, không dùng
 
 Attach lifecycle:
 
-1. Người dùng chọn tab trong side panel; extension lưu `tabId`, `windowId`.
+1. Mặc định auto-attach: SW lấy tab đang active (`chrome.tabs.query({active:true,lastFocusedWindow:true})`), bỏ qua trang nội bộ (`chrome://`, `chrome-extension://`, `devtools://`), rồi attach và lưu `tabId`, `windowId`. SW theo `chrome.tabs.onActivated` để đổi tab. Người dùng vẫn có thể chọn tab thủ công trong side panel; đặt `autoAttach:false` trong storage để tắt auto-attach.
 2. Gọi `chrome.debugger.attach({tabId}, "1.3")`.
 3. Nếu lỗi `Another debugger is already attached`: hiển thị "Đóng DevTools của tab này rồi thử lại"; trả `-32006` kind `DEVTOOLS_CONFLICT`.
 4. Bật các domain theo bảng; đăng ký listener `onEvent`, `onDetach`.
@@ -154,6 +154,8 @@ UI pages:
 5. Bridge trả `token` 64 hex, gắn token với `extensionId` + `tabId` hiện tại; đóng mọi client cũ.
 6. Extension lưu token, chuyển `Connected`.
 7. Token bị thu hồi khi bridge restart, khi người dùng bấm "Pair again", hoặc khi `kilo-browser pair --rotate`.
+
+Đường pre-approved (không cần code): nếu `extensionId` nằm trong `browser.allowedExtensionIds`, bridge bỏ yêu cầu `pairCode`. `/pair/hint` trả thêm `autoPair:true` để UI hiện nút **Connect** thay vì ô code, và `/pair/claim` chấp nhận claim không có `pairCode` (WS `hello` cũng vậy). Boundary vẫn giữ: chỉ đúng extension id đó nhận được token hiện hành, và token vẫn bắt buộc cho mọi call `/tool`.
 
 #### 8.3.10 PermissionDock và approval
 

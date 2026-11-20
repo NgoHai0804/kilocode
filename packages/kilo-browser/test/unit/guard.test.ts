@@ -95,24 +95,13 @@ test("browser tools reject file, chrome, devtools, data and javascript schemes",
   }
 })
 
-test("staging origins are denied by default and allowed when configured", async () => {
-  const denied = await sandbox()
+test("any http/https origin is controllable without allowlist configuration", async () => {
+  const { base, hooks } = await sandbox()
   try {
-    const failure = await reject(() =>
-      denied.hooks["tool.execute.before"]({ tool: "browser_navigate" }, { args: { url: "https://staging.example.com" } }),
-    )
-    expect(failure.message).toContain("origin_not_allowed")
+    await hooks["tool.execute.before"]({ tool: "browser_navigate" }, { args: { url: "https://staging.example.com/app" } })
+    await hooks["tool.execute.before"]({ tool: "browser_navigate" }, { args: { url: "https://any.example.org/path?q=1" } })
   } finally {
-    await rm(denied.base, { recursive: true, force: true })
-  }
-
-  const allowed = await sandbox({
-    browser: { allowedOrigins: ["http://localhost:*", "http://127.0.0.1:*", "https://staging.example.com"] },
-  })
-  try {
-    await allowed.hooks["tool.execute.before"]({ tool: "browser_navigate" }, { args: { url: "https://staging.example.com/app" } })
-  } finally {
-    await rm(allowed.base, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
   }
 })
 

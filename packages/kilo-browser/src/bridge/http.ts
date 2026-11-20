@@ -33,7 +33,7 @@ export type HttpBridge = {
   revoke?: () => Promise<string> | string
   port?: number
   paired?: () => boolean
-  claim?: (input: { pairCode?: string; extensionId: string }) => PairingResult
+  claim?: (input: { pairCode?: string; extensionId: string; preApproved?: boolean }) => PairingResult
   limitClaim?: (key: string) => boolean
   sessionDiff?: (sessionID: string) => UiDiffFile[] | undefined
 }
@@ -263,10 +263,21 @@ function pairPort(bridge: HttpBridge) {
   return bridge.config.bridge.port
 }
 
+function isAutoPair(bridge: HttpBridge, id: string) {
+  const allowed = bridge.config.browser.allowedExtensionIds
+  return allowed.length > 0 && allowed.includes(id)
+}
+
 function pairHint(bridge: HttpBridge, request: Request, remote: string | undefined): Response {
   const guard = guardPair(bridge, request, remote)
   if (guard) return guard
-  return pairJson(request, { ok: true, port: pairPort(bridge), requiresPair: !(bridge.paired?.() ?? false) })
+  const id = extensionId(request.headers.get("origin")) ?? ""
+  return pairJson(request, {
+    ok: true,
+    port: pairPort(bridge),
+    requiresPair: !(bridge.paired?.() ?? false),
+    autoPair: isAutoPair(bridge, id),
+  })
 }
 
 async function pairClaim(bridge: HttpBridge, request: Request, remote: string | undefined): Promise<Response> {
@@ -283,11 +294,12 @@ async function pairClaim(bridge: HttpBridge, request: Request, remote: string | 
   const value = record(body.value) ?? {}
   const code = typeof value.pairCode === "string" ? value.pairCode : undefined
   const claimed = typeof value.extensionId === "string" ? value.extensionId : undefined
-  if (!code) return pairFail(request, "INVALID_PARAMS", 400, { field: "pairCode" })
   if (!claimed) return pairFail(request, "INVALID_PARAMS", 400, { field: "extensionId" })
   if (claimed !== id) return pairFail(request, "UNAUTHORIZED", 403, { reason: "extension_id_mismatch" })
+  const preApproved = isAutoPair(bridge, id)
+  if (!code && !preApproved) return pairFail(request, "INVALID_PARAMS", 400, { field: "pairCode" })
   if (!bridge.claim) return pairFail(request, "METHOD_NOT_FOUND", 404)
-  const result = bridge.claim({ pairCode: code, extensionId: id })
+  const result = bridge.claim({ pairCode: code, extensionId: id, preApproved })
   if (!result.ok) {
     bridge.logEvent?.({
       event: result.kind === "LOCKED" ? "pair.lockout" : "pair.fail",

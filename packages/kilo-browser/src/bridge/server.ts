@@ -158,7 +158,7 @@ export class BridgeServer implements HttpBridge {
     return this.pairing.paired
   }
 
-  claim(input: { pairCode?: string; extensionId: string }) {
+  claim(input: { pairCode?: string; extensionId: string; preApproved?: boolean }) {
     return this.pairing.issue(input)
   }
 

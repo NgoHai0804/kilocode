@@ -220,7 +220,9 @@ export class WsHub {
       ws.close(4004, "MISSING_EXTENSION_ID")
       return
     }
-    const result = this.pairing.issue({ pairCode, token, extensionId: this.id })
+    const allowed = this.config.browser.allowedExtensionIds
+    const preApproved = allowed.length > 0 && allowed.includes(this.id)
+    const result = this.pairing.issue({ pairCode, token, extensionId: this.id, preApproved })
     if (!result.ok) {
       this.onEvent?.({
         type: result.kind === "LOCKED" ? "pair.lockout" : "pair.fail",
