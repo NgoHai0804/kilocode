@@ -7,4 +7,6 @@ if (!root) {
   throw new Error("Root element not found")
 }
 
-render(() => <BrowserRoot theme="kilo" initialView="settings" />, root)
+const tab = new URLSearchParams(window.location.search).get("tab") ?? undefined
+
+render(() => <BrowserRoot theme="kilo" initialView="settings" initialSettingsTab={tab} />, root)

@@ -35,6 +35,8 @@ export type UiHostOptions = {
 
 type Usage = { count: number; lastUsed: number }
 
+type WorkStyleState = "human-in-the-loop" | "autonomous" | "skipped" | "unset"
+
 type UiState = {
   recents: ModelSelection[]
   favorites: ModelSelection[]
@@ -42,6 +44,12 @@ type UiState = {
   modelUsage: Record<string, Usage>
   settings: Record<string, unknown>
   modelSelectorExpanded: boolean
+  workStyle: WorkStyleState
+}
+
+function workStyleState(value: unknown): WorkStyleState {
+  if (value === "human-in-the-loop" || value === "autonomous" || value === "skipped") return value
+  return "unset"
 }
 
 const FEATURES: FeatureFlags = {
@@ -108,6 +116,7 @@ export class UiHost {
     modelUsage: {},
     settings: {},
     modelSelectorExpanded: true,
+    workStyle: "unset",
   }
   private loading?: Promise<void>
   private drafts = new Map<string, { sid: string; exp: number }>()
@@ -384,6 +393,38 @@ export class UiHost {
       case "copyToClipboard":
         this.send({ type: "clipboardWriteResult", id: message.id, ok: false, error: "Clipboard writes happen in the UI page" })
         break
+      case "requestWorkStyle":
+        await this.sendWorkStyle()
+        break
+      case "applyWorkStyle": {
+        await this.ensureState()
+        this.state.workStyle = message.style
+        await this.saveState()
+        this.send({ type: "workStyleApplied", style: message.style })
+        break
+      }
+      case "setWorkStyle": {
+        await this.ensureState()
+        this.state.workStyle = message.style
+        await this.saveState()
+        break
+      }
+      case "requestWorkspaceScope":
+        // The browser surface has no Agent Manager to point users at, so the
+        // hint stays hidden (no folder => nothing to render).
+        this.send({ type: "workspaceScope" })
+        break
+      case "requestImageModels":
+        this.send({ type: "imageModelsLoaded", models: [] })
+        break
+      case "requestMemory":
+        this.send({ type: "memoryLoaded", sessionID: message.sessionID })
+        break
+      case "requestGlobalConfig": {
+        const globalConfig = await readConfigFile(this.globalPath)
+        this.send({ type: "globalConfigLoaded", config: globalConfig as Config })
+        break
+      }
       case "requestAutocompleteSettings":
         this.send({
           type: "autocompleteSettingsLoaded",
@@ -539,6 +580,16 @@ export class UiHost {
       this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "questionReject", error: errorText(err) } })
       this.send({ type: "questionError", requestID })
     }
+  }
+
+  private async sendWorkStyle() {
+    await this.ensureState()
+    let style = this.state.workStyle
+    if (style === "unset") {
+      const raw = await this.kilo.listSessions?.()
+      style = Array.isArray(raw) && raw.length > 0 ? "skipped" : "unset"
+    }
+    this.send({ type: "workStyleLoaded", style })
   }
 
   private async sendConfig() {
@@ -727,6 +778,7 @@ export class UiHost {
         modelUsage: usageMap(raw.modelUsage),
         settings: isRecord(raw.settings) ? raw.settings : {},
         modelSelectorExpanded: raw.modelSelectorExpanded !== false,
+        workStyle: workStyleState(raw.workStyle),
       }
     })()
     return this.loading
@@ -741,6 +793,7 @@ export class UiHost {
       modelUsage: this.state.modelUsage,
       settings: this.state.settings,
       modelSelectorExpanded: this.state.modelSelectorExpanded,
+      workStyle: this.state.workStyle,
     })
   }
 

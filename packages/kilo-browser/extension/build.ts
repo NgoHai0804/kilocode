@@ -7,6 +7,10 @@ const uiOut = path.join(out, "ui-dist")
 const staging = path.join(root, ".ui-dist-stage")
 
 const UI_PAGES = ["sidepanel.html", "settings.html", "file.html", "diff.html"]
+// The shared webview loads brand marks from `window.ICONS_BASE_URI` (set to
+// `chrome.runtime.getURL("icons")` by `ui/bootstrap.ts`); the same SVG assets the
+// VS Code extension ships in `assets/icons` must be present at the extension root.
+const ICONS = path.resolve(root, "../../kilo-vscode/assets/icons")
 
 async function exists(target: string) {
   try {
@@ -51,6 +55,13 @@ if (!result.success) {
 
 for (const file of ["manifest.json", "sidepanel.html", "settings.html"]) {
   await copyFile(path.join(root, file), path.join(out, file))
+}
+
+if (await exists(ICONS)) {
+  await cp(ICONS, path.join(out, "icons"), { recursive: true })
+} else {
+  console.error(`icons missing at ${path.relative(root, ICONS)}`)
+  process.exit(1)
 }
 
 await cp(staging, uiOut, { recursive: true })

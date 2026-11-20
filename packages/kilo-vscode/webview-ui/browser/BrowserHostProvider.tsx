@@ -17,6 +17,7 @@ import {
 } from "../src/host/HostBridge"
 import { BROWSER_V1_CAPABILITIES } from "../src/host/capabilities"
 import type { ExtensionMessage, WebviewMessage } from "../src/types/messages"
+import { post } from "../src/utils/webview-message"
 import {
   BRIDGE_ERROR_EVENT,
   BRIDGE_PAIR_REQUIRED_EVENT,
@@ -175,6 +176,10 @@ export const BrowserHostProvider: ParentComponent = (props) => {
         console.error("[Kilo Browser] host listener failed", err)
       }
     }
+    // Mirror VS Code: extension messages also arrive as `window` message events
+    // so components that listen with `window.addEventListener("message")` (the
+    // app router, task header, migration) keep working against the browser host.
+    post(message)
   }
 
   const openTab = (url: string, action: string): boolean => {
@@ -200,6 +205,15 @@ export const BrowserHostProvider: ParentComponent = (props) => {
 
   const handledLocally = (message: WebviewMessage): boolean => {
     switch (message.type) {
+      case "openSettingsPanel":
+        // Only one UI surface can hold the bridge socket at a time, so the
+        // shared settings view navigates inside this page instead of opening a
+        // second tab that could not connect.
+        dispatch({ type: "navigate", view: "settings", ...(message.tab ? { tab: message.tab } : {}) })
+        return true
+      case "openProfilePanel":
+        dispatch({ type: "navigate", view: "profile" })
+        return true
       case "openFile":
         return openTab(
           viewerUrl("file.html", {

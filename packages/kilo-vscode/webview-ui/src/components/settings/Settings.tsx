@@ -453,12 +453,10 @@ const Settings: Component<SettingsProps> = (props) => {
           </Tabs.Trigger>
           </Show>
           <Show when={props.agentManagerSettings && can("agentManager")}>
-          <Show when={props.agentManagerSettings && can("agentManager")}>
             <Tabs.Trigger value="agentManager" aria-label={language.t("agentManager.settings.title")}>
               <Icon name="settings-gear" />
               <span class="label">{language.t("agentManager.settings.title")}</span>
             </Tabs.Trigger>
-          </Show>
           </Show>
           <Show when={can("browser")}>
           <Tabs.Trigger value="browser" aria-label={language.t("settings.webTools.title")}>
