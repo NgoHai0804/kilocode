@@ -15,6 +15,7 @@ import { checkJail } from "../policy/jail"
 import { capDiff, diffFromEvent, type UiDiffFile } from "./ui-files"
 import { ApprovalGate } from "./approval"
 import { RateLimiter } from "./rate"
+import { LoopGuard } from "./loop"
 
 export const RUNTIME_FILE = "runtime.json"
 
@@ -48,6 +49,7 @@ export class BridgeServer implements HttpBridge {
   readonly approvals: ApprovalGate
   readonly ui: UiHub
   readonly uiHost: UiHost
+  readonly loop = new LoopGuard()
   startedAt = Date.now()
   closing = false
   private server?: ReturnType<typeof Bun.serve<WsData>>

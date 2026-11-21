@@ -2,7 +2,7 @@ import type { Json } from "../util/value"
 import type { ToolContext } from "./context"
 import * as input from "../cdp/domains/input"
 import { noTarget, throwIfAborted } from "../rpc/failure"
-import { center, inspect, objectId, resolveTarget, scroll as scrollIntoView } from "./target"
+import { inspect, objectId, resolveTarget, scroll as scrollIntoView } from "./target"
 
 export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): Promise<Json> {
   throwIfAborted(signal)
@@ -11,9 +11,7 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
   const id = await objectId(ctx, target)
   const state = await inspect(ctx, id)
   if (!state.visible) throw noTarget("element_not_visible")
-  const point = await center(ctx, target, state)
-  await input.moveMouse(ctx.session, point)
+  await input.moveMouse(ctx.session, { x: state.x, y: state.y })
   throwIfAborted(signal)
-  await ctx.session.readPageInfo()
   return { hovered: true, ...(target.ref ? { ref: target.ref } : {}), url: ctx.session.url ?? "" }
 }

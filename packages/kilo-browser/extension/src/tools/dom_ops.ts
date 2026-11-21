@@ -27,8 +27,15 @@ export async function callObject(
     returnByValue: true,
     awaitPromise: false,
   })
-  if (record(result.exceptionDetails)) throw noTarget("script_failed")
+  const details = record(result.exceptionDetails)
+  if (details) throw noTarget(`script_failed:${exceptionText(details)}`)
   return record(result.result)?.value
+}
+
+function exceptionText(details: Record<string, unknown>): string {
+  const exception = record(details.exception)
+  const description = exception ? text(exception.description) : undefined
+  return (description ?? text(details.text) ?? "unknown").slice(0, 200)
 }
 
 /** Object id of the page `document`, used as the root for page-wide queries. */
@@ -53,11 +60,15 @@ export async function pageText(ctx: ToolContext): Promise<string> {
   return typeof value === "string" ? value : ""
 }
 
-export const TEXT_FN = `function () { return (this.innerText || this.textContent || "").replace(/\\n{3,}/g, "\\n\\n").trim() }`
+export const TEXT_FN = `function () {
+  if (!this) return "";
+  return (this.innerText || this.textContent || "").replace(/\\n{3,}/g, "\\n\\n").trim()
+}`
 
-export const HTML_FN = `function () { return this.outerHTML }`
+export const HTML_FN = `function () { return this && typeof this.outerHTML === "string" ? this.outerHTML : "" }`
 
 export const ATTRS_FN = `function () {
+  if (!this || typeof this.tagName !== "string") return { tag: "", attributes: {}, text: "" };
   var out = {};
   var attrs = this.attributes || [];
   for (var i = 0; i < attrs.length; i += 1) out[attrs[i].name] = attrs[i].value;
@@ -73,8 +84,9 @@ export const ATTRS_FN = `function () {
 }`
 
 export const SCROLL_BLOCK_FN = `function (args) {
+  if (!this || typeof this.scrollIntoView !== "function") return { ok: false, reason: "not_scrollable" };
   this.scrollIntoView({ block: (args && args.block) || "center", inline: "nearest" });
-  return true
+  return { ok: true }
 }`
 
 export const PAGE_SCROLL_FN = `function (args) {
@@ -88,7 +100,8 @@ export const PAGE_SCROLL_FN = `function (args) {
 }`
 
 export const SELECT_FN = `function (args) {
-  var options = this.options || [];
+  if (!this || !this.options) return { ok: false, reason: "not_select" };
+  var options = this.options;
   var index = this.selectedIndex;
   if (args && args.index !== undefined && args.index !== null) index = args.index | 0;
   else if (args && args.value !== undefined && args.value !== null) {
@@ -100,7 +113,7 @@ export const SELECT_FN = `function (args) {
     var label = String(args.label);
     for (var j = 0; j < options.length; j += 1) if ((options[j].text || "").trim() === label) { index = j; break }
   }
-  if (index < 0 || index >= options.length) return { ok: false };
+  if (index < 0 || index >= options.length) return { ok: false, reason: "option_not_found" };
   this.selectedIndex = index;
   this.dispatchEvent(new Event("input", { bubbles: true }));
   this.dispatchEvent(new Event("change", { bubbles: true }));
@@ -110,6 +123,7 @@ export const SELECT_FN = `function (args) {
 export const FILL_FN = `function (args) {
   var value = args && args.value != null ? String(args.value) : "";
   var el = this;
+  if (!el) return { ok: false, reason: "no_element" };
   if (el.isContentEditable) {
     el.focus();
     el.textContent = value;
@@ -117,13 +131,94 @@ export const FILL_FN = `function (args) {
     el.dispatchEvent(new Event("change", { bubbles: true }));
     return { ok: true, value: el.textContent || "" }
   }
-  var proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+  var tag = el.tagName;
+  if (tag !== "INPUT" && tag !== "TEXTAREA") return { ok: false, reason: "not_fillable" };
+  var proto = tag === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
   var desc = Object.getOwnPropertyDescriptor(proto, "value");
   if (desc && desc.set) desc.set.call(el, value);
   else el.value = value;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { ok: true, value: el.value }
+}`
+
+export const CLICK_FN = `function () {
+  if (typeof this.click === "function") { this.click(); return { ok: true } }
+  return { ok: false, reason: "not_clickable" }
+}`
+
+export const OUTLINE_FN = `function (args) {
+  var selector = args && args.selector ? String(args.selector) : "";
+  var max = args && args.maxNodes ? args.maxNodes : 120;
+  function norm(value) { return (value || "").replace(/\\s+/g, " ").trim() }
+  function pathOf(el) {
+    if (!el || el.nodeType !== 1) return "";
+    var parts = [];
+    var node = el;
+    var guard = 0;
+    while (node && node.nodeType === 1 && parts.length < 8 && guard < 10) {
+      guard += 1;
+      var sel = node.tagName.toLowerCase();
+      if (node.id) { parts.unshift(sel + "#" + node.id); break }
+      var parent = node.parentElement;
+      if (parent) {
+        var sames = [];
+        var kids = parent.children;
+        for (var i = 0; i < kids.length; i += 1) if (kids[i].tagName === node.tagName) sames.push(kids[i]);
+        if (sames.length > 1) sel += ":nth-of-type(" + (sames.indexOf(node) + 1) + ")";
+      }
+      parts.unshift(sel);
+      node = parent;
+    }
+    return parts.join(" > ");
+  }
+  function labelFor(el) {
+    var label = el.getAttribute("aria-label") || el.getAttribute("title") || "";
+    if (!label && el.id) {
+      try { var found = document.querySelector('label[for="' + el.id.replace(/"/g, "") + '"]'); if (found) label = found.innerText } catch (err) {}
+    }
+    if (!label && el.labels && el.labels.length) label = el.labels[0].innerText;
+    if (!label) label = el.getAttribute("placeholder") || el.value || el.innerText || el.textContent || "";
+    return norm(label).slice(0, 120);
+  }
+  var root = selector ? document.querySelector(selector) : document;
+  if (!root) return { error: "selector_not_found" };
+  var out = { landmarks: [], headings: [], forms: [], tables: [], buttons: 0, links: 0, inputs: 0 };
+  function add(list, item) { if (list.length < max) list.push(item) }
+  var marks = root.querySelectorAll("header,nav,main,aside,footer,form,section,[role]");
+  for (var m = 0; m < marks.length && out.landmarks.length < max; m += 1) {
+    var el = marks[m];
+    var role = el.getAttribute("role") || el.tagName.toLowerCase();
+    var heading = el.querySelector("h1,h2,h3");
+    add(out.landmarks, { role: role, name: labelFor(el), heading: heading ? norm(heading.innerText).slice(0, 80) : "", selector: pathOf(el) });
+  }
+  var hs = root.querySelectorAll("h1,h2,h3,h4,h5,h6,[role=heading]");
+  for (var h = 0; h < hs.length && out.headings.length < max; h += 1) {
+    var hel = hs[h];
+    var level = hel.tagName && /^H[1-6]$/.test(hel.tagName) ? Number(hel.tagName[1]) : Number(hel.getAttribute("aria-level") || 2);
+    add(out.headings, { level: level, text: norm(hel.innerText || hel.textContent).slice(0, 120), selector: pathOf(hel) });
+  }
+  var fs = root.querySelectorAll("form,[role=form]");
+  for (var f = 0; f < fs.length && out.forms.length < max; f += 1) {
+    var fel = fs[f];
+    var fields = [];
+    var ctrls = fel.querySelectorAll("input,select,textarea,[role=textbox],[role=combobox],[role=checkbox],[role=radio],[contenteditable=true]");
+    for (var c = 0; c < ctrls.length && fields.length < 40; c += 1) {
+      var cel = ctrls[c];
+      fields.push({ role: cel.getAttribute("role") || cel.tagName.toLowerCase(), type: cel.getAttribute("type") || "", name: labelFor(cel), selector: pathOf(cel) });
+    }
+    add(out.forms, { name: labelFor(fel), selector: pathOf(fel), fields: fields });
+  }
+  out.buttons = root.querySelectorAll("button,[role=button],input[type=submit],input[type=button]").length;
+  out.links = root.querySelectorAll("a[href],[role=link]").length;
+  out.inputs = root.querySelectorAll("input,select,textarea,[contenteditable=true]").length;
+  var ts = root.querySelectorAll("table");
+  for (var t = 0; t < ts.length && out.tables.length < max; t += 1) {
+    var tel = ts[t];
+    var cap = tel.querySelector("caption");
+    add(out.tables, { caption: cap ? norm(cap.innerText).slice(0, 80) : "", rows: tel.querySelectorAll("tr").length, headers: tel.querySelectorAll("th").length, selector: pathOf(tel) });
+  }
+  return out;
 }`
 
 export const FIND_FN = `function (args) {

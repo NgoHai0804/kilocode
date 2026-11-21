@@ -7,6 +7,8 @@ import * as fill from "../../extension/src/tools/fill"
 import * as closeTab from "../../extension/src/tools/close_tab"
 import * as newTab from "../../extension/src/tools/new_tab"
 import * as press from "../../extension/src/tools/press"
+import * as batch from "../../extension/src/tools/batch"
+import { callObject } from "../../extension/src/tools/dom_ops"
 
 const ctx = {} as unknown as ToolContext
 const signal = new AbortController().signal
@@ -69,4 +71,30 @@ test("press without a ref dispatches page-level keys without requiring focus", a
   const result = await press.run({ key: "End" }, attached, signal)
   expect(result).toMatchObject({ pressed: "End" })
   expect(calls).toContain("Input.dispatchKeyEvent")
+})
+
+test("callObject surfaces the page exception text instead of a bare script_failed", async () => {
+  const ctx = {
+    session: {
+      send: async () => ({
+        exceptionDetails: { exception: { description: "TypeError: this.click is not a function" } },
+      }),
+    },
+  } as unknown as ToolContext
+  const failure = await failureOf(() => callObject(ctx, "obj", "function () {}"))
+  expect(failure.kind).toBe("NO_TARGET")
+  expect(failure.data.reason).toBe("script_failed:TypeError: this.click is not a function")
+})
+
+test("batch rejects an empty step list", async () => {
+  const failure = await failureOf(() => batch.run({ steps: [] }, ctx, signal))
+  expect(failure.kind).toBe("INVALID_PARAMS")
+  expect(failure.data.field).toBe("steps")
+})
+
+test("batch rejects more steps than the cap", async () => {
+  const steps = Array.from({ length: 31 }, () => ({ action: "status" }))
+  const failure = await failureOf(() => batch.run({ steps }, ctx, signal))
+  expect(failure.kind).toBe("INVALID_PARAMS")
+  expect(failure.data.field).toBe("steps")
 })

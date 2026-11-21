@@ -21,13 +21,12 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
   const raw = await callObject(ctx, id, FILL_FN, [{ value }])
   throwIfAborted(signal)
   const result = record(raw) ?? {}
-  if (result.ok !== true) throw noTarget("element_not_fillable")
+  if (result.ok !== true) throw noTarget(typeof result.reason === "string" ? result.reason : "element_not_fillable")
   if (submit) await input.dispatchKey(ctx.session, "Enter")
-  throwIfAborted(signal)
-  await ctx.session.readPageInfo()
   return {
     filled: typeof result.value === "string" ? result.value.length : value.length,
     submitted: submit,
     ...(target.ref ? { ref: target.ref } : {}),
+    url: ctx.session.url ?? "",
   }
 }

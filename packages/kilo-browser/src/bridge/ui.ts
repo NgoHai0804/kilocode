@@ -47,6 +47,7 @@ type UiState = {
   settings: Record<string, unknown>
   modelSelectorExpanded: boolean
   workStyle: WorkStyleState
+  autoApprove: boolean
 }
 
 function workStyleState(value: unknown): WorkStyleState {
@@ -97,7 +98,6 @@ const IGNORED_TYPES = new Set<string>([
   "enhancePrompt",
   "memoryOperation",
   "memoryShow",
-  "toggleAutoApprove",
   // agent/skill/mcp management (no CLI surface in the browser)
   "removeAgent",
   "removeSkill",
@@ -231,6 +231,7 @@ export class UiHost {
     settings: {},
     modelSelectorExpanded: true,
     workStyle: "unset",
+    autoApprove: false,
   }
   private loading?: Promise<void>
   private drafts = new Map<string, { sid: string; exp: number }>()
@@ -282,6 +283,7 @@ export class UiHost {
     })
     this.send({ type: "connectionState", state: "connected" })
     this.send({ type: "extensionDataReady" })
+    this.send({ type: "autoApproveState", active: this.state.autoApprove })
   }
 
   close() {
@@ -652,8 +654,12 @@ export class UiHost {
       case "requestNotifications":
         this.send({ type: "notificationsLoaded", notifications: [], dismissedIds: [] })
         break
+      case "toggleAutoApprove":
+        await this.toggleAutoApprove()
+        break
       case "requestAutoApproveState":
-        this.send({ type: "autoApproveState", active: false })
+        await this.ensureState()
+        this.send({ type: "autoApproveState", active: this.state.autoApprove })
         break
       case "requestBrowserSettings":
         this.send({ type: "browserSettingsLoaded", settings: { enabled: false, useSystemChrome: false, headless: false } })
@@ -1147,6 +1153,15 @@ export class UiHost {
     const id = str(data.id)
     const sessionID = str(data.sessionID)
     if (!id || !sessionID) return
+    const reply = this.kilo.reply
+    if (this.state.autoApprove && reply) {
+      void this.autoApprovePermission(reply.bind(this.kilo), id, sessionID, data)
+      return
+    }
+    this.sendPermissionAsked(id, sessionID, data)
+  }
+
+  private sendPermissionAsked(id: string, sessionID: string, data: Record<string, unknown>) {
     const permission = str(data.permission) ?? "unknown"
     const tool = isRecord(data.tool) ? (data.tool as { messageID: string; callID: string }) : undefined
     const request: PermissionRequest = {
@@ -1162,6 +1177,50 @@ export class UiHost {
     this.send({ type: "permissionRequest", permission: request })
   }
 
+  private async autoApprovePermission(
+    reply: (input: { requestID: string; reply: string }) => Promise<unknown>,
+    requestID: string,
+    sessionID: string,
+    data: Record<string, unknown>,
+  ) {
+    try {
+      await reply({ requestID, reply: "once" })
+      this.send({ type: "permissionResolved", permissionID: requestID })
+    } catch (err) {
+      this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "autoApprove", requestID, error: errorText(err) } })
+      this.sendPermissionAsked(requestID, sessionID, data)
+    }
+  }
+
+  private async toggleAutoApprove() {
+    await this.ensureState()
+    this.state.autoApprove = !this.state.autoApprove
+    await this.saveState()
+    this.send({ type: "autoApproveState", active: this.state.autoApprove })
+    if (this.state.autoApprove) await this.approvePending()
+  }
+
+  private async approvePending() {
+    if (!this.kilo.permissions || !this.kilo.reply) return
+    let raw: unknown
+    try {
+      raw = await this.kilo.permissions(this.workspace)
+    } catch (err) {
+      this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "autoApprove", error: errorText(err) } })
+      return
+    }
+    const list = Array.isArray(raw) ? raw : isRecord(raw) && Array.isArray(raw.data) ? raw.data : []
+    for (const item of list) {
+      if (!isRecord(item) || typeof item.id !== "string") continue
+      try {
+        await this.kilo.reply({ requestID: item.id, reply: "once" })
+        this.send({ type: "permissionResolved", permissionID: item.id })
+      } catch (err) {
+        this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "autoApprove", requestID: item.id, error: errorText(err) } })
+      }
+    }
+  }
+
   private async ensureState() {
     if (this.loading) return this.loading
     this.loading = (async () => {
@@ -1174,6 +1233,7 @@ export class UiHost {
         settings: isRecord(raw.settings) ? raw.settings : {},
         modelSelectorExpanded: raw.modelSelectorExpanded !== false,
         workStyle: workStyleState(raw.workStyle),
+        autoApprove: raw.autoApprove === true,
       }
     })()
     return this.loading
@@ -1189,6 +1249,7 @@ export class UiHost {
       settings: this.state.settings,
       modelSelectorExpanded: this.state.modelSelectorExpanded,
       workStyle: this.state.workStyle,
+      autoApprove: this.state.autoApprove,
     })
   }
 

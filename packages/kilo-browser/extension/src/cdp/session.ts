@@ -52,6 +52,7 @@ export type WaitHandle = {
 }
 
 const ENABLE_DOMAINS = ["Page", "Runtime", "Network", "Log", "DOM", "Accessibility"]
+const LIVE_CHECK_MS = 3000
 
 export class CdpSession implements CdpConnection {
   private readonly api: DebuggerApi
@@ -74,6 +75,7 @@ export class CdpSession implements CdpConnection {
   private status?: number
   private attachedState = false
   private attachedAt = 0
+  private lastLiveAt = 0
   private wanted = false
   private lastError?: RpcFailure
 
@@ -151,14 +153,15 @@ export class CdpSession implements CdpConnection {
     this.lastError = undefined
     this.attachedState = true
     this.attachedAt = this.now()
+    this.lastLiveAt = this.now()
     this.listen()
-    for (const domain of ENABLE_DOMAINS) {
-      try {
-        await this.command(`${domain}.enable`)
-      } catch (err) {
-        this.log("cdp.domain_failed", { domain, error: errorMessage(err) })
-      }
-    }
+    await Promise.all(
+      ENABLE_DOMAINS.map((domain) =>
+        this.command(`${domain}.enable`).catch((err: unknown) => {
+          this.log("cdp.domain_failed", { domain, error: errorMessage(err) })
+        }),
+      ),
+    )
     await this.readPageInfo()
     this.log("cdp.attach", { tabId })
     return this.tab ?? { id: tabId, attached: true }
@@ -172,6 +175,7 @@ export class CdpSession implements CdpConnection {
     this.wanted = false
     this.currentTabId = 0
     this.lastError = undefined
+    this.lastLiveAt = 0
     this.currentUrl = undefined
     this.currentTitle = undefined
     this.currentFrameId = undefined
@@ -192,7 +196,10 @@ export class CdpSession implements CdpConnection {
   async ensure(): Promise<void> {
     if (!this.wanted || this.currentTabId === 0) throw this.lastError ?? noTarget()
     if (this.attachedState) {
-      if (this.now() - this.attachedAt < 1000) return
+      const now = this.now()
+      if (now - this.attachedAt < 1000) return
+      if (now - this.lastLiveAt < LIVE_CHECK_MS) return
+      this.lastLiveAt = now
       const live = await this.targetLive()
       if (live) return
       this.attachedState = false
@@ -331,6 +338,10 @@ export class CdpSession implements CdpConnection {
 
   private handleEvent(method: string, params: Json) {
     this.events.push(method, params)
+    if (method === "Page.navigatedWithinDocument") {
+      this.currentUrl = text(params.url) ?? this.currentUrl
+      return
+    }
     if (method === "Page.frameNavigated") {
       const frame = record(params.frame)
       if (frame && text(frame.parentId) === undefined) {

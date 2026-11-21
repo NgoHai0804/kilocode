@@ -15,6 +15,7 @@ export type ToolName =
   | "get_html"
   | "find"
   | "attrs"
+  | "outline"
   | "click"
   | "type"
   | "press"
@@ -23,6 +24,7 @@ export type ToolName =
   | "fill"
   | "scroll"
   | "history"
+  | "batch"
   | "reload"
   | "wait_for"
   | "eval"
@@ -42,6 +44,7 @@ export const TOOL_NAMES: ToolName[] = [
   "get_html",
   "find",
   "attrs",
+  "outline",
   "click",
   "type",
   "press",
@@ -50,6 +53,7 @@ export const TOOL_NAMES: ToolName[] = [
   "fill",
   "scroll",
   "history",
+  "batch",
   "reload",
   "wait_for",
   "eval",
@@ -71,6 +75,7 @@ export const BROWSER_PERMISSIONS: Record<string, Policy> = {
   browser_get_html: "allow",
   browser_find: "allow",
   browser_attrs: "allow",
+  browser_outline: "allow",
   browser_click: "allow",
   browser_type: "allow",
   browser_press: "allow",
@@ -79,6 +84,7 @@ export const BROWSER_PERMISSIONS: Record<string, Policy> = {
   browser_fill: "allow",
   browser_scroll: "allow",
   browser_history: "allow",
+  browser_batch: "allow",
   browser_reload: "allow",
   browser_wait_for: "allow",
   browser_eval: "deny",
@@ -233,6 +239,7 @@ export const DEFAULT_CONFIG: BrowserConfig = {
     get_html: "allow",
     find: "allow",
     attrs: "allow",
+    outline: "allow",
     click: "allow",
     type: "allow",
     press: "allow",
@@ -241,6 +248,7 @@ export const DEFAULT_CONFIG: BrowserConfig = {
     fill: "allow",
     scroll: "allow",
     history: "allow",
+    batch: "allow",
     reload: "allow",
     wait_for: "allow",
     eval: "deny",

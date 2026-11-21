@@ -86,21 +86,6 @@ export async function dispatchKey(
   await cdp.send("Input.dispatchKeyEvent", { ...base, type: "keyUp" })
 }
 
-export async function typeText(cdp: CdpConnection, value: string) {
-  for (const character of value) {
-    if (character === "\n" || character === "\r") {
-      await dispatchKey(cdp, "Enter")
-      continue
-    }
-    await cdp.send("Input.dispatchKeyEvent", {
-      type: "char",
-      text: character,
-      unmodifiedText: character,
-      key: character,
-    })
-  }
-}
-
 export async function insertText(cdp: CdpConnection, textValue: string) {
   await cdp.send("Input.insertText", { text: textValue })
 }

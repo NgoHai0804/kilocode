@@ -29,13 +29,12 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
     await input.dispatchKey(ctx.session, "Backspace")
   }
   throwIfAborted(signal)
-  await input.typeText(ctx.session, text)
+  await input.insertText(ctx.session, text)
   if (submit) await input.dispatchKey(ctx.session, "Enter")
-  throwIfAborted(signal)
-  await ctx.session.readPageInfo()
   return {
     typed: text.length,
     ...(target.ref ? { ref: target.ref } : {}),
     submitted: submit,
+    url: ctx.session.url ?? "",
   }
 }

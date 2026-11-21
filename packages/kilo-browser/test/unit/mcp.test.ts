@@ -16,6 +16,7 @@ const NAMES = [
   "get_html",
   "find",
   "attrs",
+  "outline",
   "click",
   "type",
   "press",
@@ -24,6 +25,7 @@ const NAMES = [
   "fill",
   "scroll",
   "history",
+  "batch",
   "reload",
   "wait_for",
   "eval",
@@ -37,7 +39,7 @@ test("shim advertises browser-assistant instructions", () => {
   expect(SERVER_INSTRUCTIONS).toContain("browser_*")
 })
 
-test("shim exposes the 25 browser tools with descriptions", () => {
+test("shim exposes the 27 browser tools with descriptions", () => {
   expect(TOOLS.map((tool) => tool.name).sort()).toEqual([...NAMES].sort())
   expect(new Set(TOOLS.map((tool) => tool.name)).size).toBe(TOOLS.length)
   for (const tool of TOOLS) {

@@ -2,12 +2,12 @@ import type { Json } from "../util/value"
 import type { ToolContext } from "./context"
 import * as input from "../cdp/domains/input"
 import { noTarget, throwIfAborted } from "../rpc/failure"
-import { callObject } from "./dom_ops"
+import { record } from "../util/value"
+import { callObject, CLICK_FN } from "./dom_ops"
 import { enumValue, optionalInteger } from "./params"
-import { center, currentOrigin, inspect, objectId, resolveTarget, scroll } from "./target"
+import { currentOrigin, inspect, objectId, resolveTarget, scroll } from "./target"
 
 const BUTTONS = ["left", "right", "middle"] as const
-const JS_CLICK_FN = `function () { this.click(); return true }`
 
 export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): Promise<Json> {
   const button = enumValue(params.button, "button", BUTTONS, "left")
@@ -26,13 +26,11 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
   // click handler, so fall back to a direct DOM click instead of failing.
   const covered = !state.hit
   if (covered) {
-    await callObject(ctx, id, JS_CLICK_FN)
+    const result = record(await callObject(ctx, id, CLICK_FN)) ?? {}
+    if (result.ok !== true) throw noTarget(typeof result.reason === "string" ? result.reason : "element_covered")
   } else {
-    const point = await center(ctx, target, state)
-    await input.clickPoint(ctx.session, point, { button, clickCount })
+    await input.clickPoint(ctx.session, { x: state.x, y: state.y }, { button, clickCount })
   }
-  throwIfAborted(signal)
-  await ctx.session.readPageInfo()
   return {
     clicked: true,
     ...(covered ? { via: "script" } : {}),

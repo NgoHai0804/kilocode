@@ -26,7 +26,6 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
   throwIfAborted(signal)
   const result = record(raw) ?? {}
   if (result.ok !== true) throw noTarget("option_not_found")
-  await ctx.session.readPageInfo()
   return {
     selected: typeof result.value === "string" ? result.value : "",
     label: typeof result.label === "string" ? result.label : "",

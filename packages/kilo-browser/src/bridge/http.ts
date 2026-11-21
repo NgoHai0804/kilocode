@@ -13,6 +13,20 @@ import { ArtifactStore } from "../artifacts/store"
 import { decideEval } from "../plugin/eval"
 import type { ApprovalGate } from "./approval"
 import type { PairingResult } from "./pairing"
+import { LoopGuard, loopGuard } from "./loop"
+
+// Environmental failures that say nothing about the tool call itself: a
+// disconnect, a busy queue, or a timeout must not count toward a loop stop.
+const TRANSIENT_KINDS = new Set<RpcKind>([
+  "NOT_PAIRED",
+  "UNAUTHORIZED",
+  "BUSY",
+  "TIMEOUT",
+  "CANCELLED",
+  "RATE_LIMIT",
+  "SHUTTING_DOWN",
+  "KILO_UNAVAILABLE",
+])
 
 export type HttpBridge = {
   config: BrowserConfig
@@ -36,6 +50,7 @@ export type HttpBridge = {
   claim?: (input: { pairCode?: string; extensionId: string; preApproved?: boolean }) => PairingResult
   limitClaim?: (key: string) => boolean
   sessionDiff?: (sessionID: string) => UiDiffFile[] | undefined
+  loop?: LoopGuard
 }
 
 export type ToolCall = {
@@ -164,6 +179,24 @@ export async function executeTool(bridge: HttpBridge, call: ToolCall) {
     }
   }
 
+  if (tool === "batch") {
+    const steps = Array.isArray(params.steps) ? params.steps : []
+    for (const entry of steps) {
+      const step = isRecord(entry) ? entry : undefined
+      const action = step && typeof step.action === "string" ? step.action : undefined
+      if (!action || !TOOL_NAMES.includes(action as ToolName)) continue
+      const policy = bridge.config.tools[action as ToolName]
+      if (policy !== "allow") {
+        bridge.logEvent?.({
+          event: "policy.deny",
+          level: "warn",
+          data: { tool: call.method, reason: "batch_step_policy", action, policy },
+        })
+        throw new RpcFailure("POLICY_DENIED", { tool: call.method, reason: "batch_step_policy", action, policy })
+      }
+    }
+  }
+
   const timeout = Math.min(call.timeoutMs ?? bridge.config.browser.defaultTimeoutMs, 30000)
   if (!Number.isInteger(timeout) || timeout < 1) throw new RpcFailure("INVALID_PARAMS", { field: "timeoutMs" })
 
@@ -174,14 +207,38 @@ export async function executeTool(bridge: HttpBridge, call: ToolCall) {
   }
 
   const hash = paramsHash(originalParams, bridge.config.redaction)
+  const guard = bridge.loop ?? loopGuard
+  const key = call.sessionID ? `${call.sessionID}\u0000${call.method}\u0000${hash}` : `${call.method}\u0000${hash}`
+  if (guard.blocked(key)) {
+    bridge.logEvent?.({
+      event: "tool.end",
+      level: "warn",
+      data: { tool: call.method, paramsHash: hash, ok: false, kind: "LOOP_STOP" },
+    })
+    throw new RpcFailure("LOOP_STOP", { tool: call.method, reason: "repeated_identical_failure" })
+  }
   bridge.logEvent?.({ event: "tool.start", data: { tool: call.method, paramsHash: hash } })
   let result: unknown
   try {
     result = await bridge.hub.request(call.method, params, timeout)
   } catch (err) {
-    bridge.logEvent?.({ event: "tool.end", level: "warn", data: { tool: call.method, paramsHash: hash, ok: false } })
+    if (!(err instanceof RpcFailure && TRANSIENT_KINDS.has(err.kind))) guard.fail(key)
+    const detail = err instanceof RpcFailure ? { kind: err.kind, reason: err.data.reason } : { kind: "INTERNAL_ERROR" }
+    bridge.logEvent?.({
+      event: "tool.end",
+      level: "warn",
+      data: { tool: call.method, paramsHash: hash, ok: false, ...detail },
+    })
     throw err
   }
+  const batchFailed =
+    tool === "batch" &&
+    isRecord(result) &&
+    typeof result.completed === "number" &&
+    typeof result.total === "number" &&
+    result.completed < result.total
+  if (batchFailed) guard.fail(key)
+  else guard.pass(key)
   if (tool === "status" && isRecord(result)) {
     if (result.tab !== undefined) bridge.setTab(result.tab)
     result = { ...result, kilo: { healthy: await kiloHealthy(bridge) } }

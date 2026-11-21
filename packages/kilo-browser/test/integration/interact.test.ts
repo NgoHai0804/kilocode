@@ -203,7 +203,9 @@ test("click/type/press/wait_for/reload work through the router with a fake CDP",
     await router.handle(request(3, "browser.type", { ref: emailRef, text: "hello", clear: true, submit: true })),
   )
   expect(typed).toMatchObject({ typed: 5, submitted: true })
-  expect(fake.inputEvents.filter((event) => event.method === "Input.dispatchKeyEvent" && event.params.type === "char")).toHaveLength(5)
+  expect(
+    fake.inputEvents.filter((event) => event.method === "Input.insertText" && event.params.text === "hello"),
+  ).toHaveLength(1)
 
   const pressed = resultOf(await router.handle(request(4, "browser.press", { ref: buttonRef, key: "Enter" })))
   expect(pressed).toMatchObject({ pressed: "Enter" })

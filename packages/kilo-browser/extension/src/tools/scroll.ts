@@ -1,6 +1,7 @@
 import type { Json } from "../util/value"
 import type { ToolContext } from "./context"
-import { throwIfAborted } from "../rpc/failure"
+import { noTarget, throwIfAborted } from "../rpc/failure"
+import { record } from "../util/value"
 import { enumValue, integer, optionalString } from "./params"
 import { objectId, resolveTarget, scroll as scrollIntoView } from "./target"
 import { callObject, documentObject, PAGE_SCROLL_FN, SCROLL_BLOCK_FN } from "./dom_ops"
@@ -18,9 +19,9 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
     const target = await resolveTarget({ ref, selector }, ctx)
     await scrollIntoView(ctx, target)
     const id = await objectId(ctx, target)
-    await callObject(ctx, id, SCROLL_BLOCK_FN, [{ block }])
+    const result = record(await callObject(ctx, id, SCROLL_BLOCK_FN, [{ block }])) ?? {}
+    if (result.ok !== true) throw noTarget("element_not_scrollable")
     throwIfAborted(signal)
-    await ctx.session.readPageInfo()
     return { scrolled: true, ...(target.ref ? { ref: target.ref } : {}), url: ctx.session.url ?? "" }
   }
 

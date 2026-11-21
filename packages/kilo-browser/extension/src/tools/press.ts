@@ -23,6 +23,5 @@ export async function run(params: Json, ctx: ToolContext, signal: AbortSignal): 
 
   throwIfAborted(signal)
   await input.dispatchKey(ctx.session, key)
-  await ctx.session.readPageInfo()
   return { pressed: key, url: ctx.session.url ?? "" }
 }

@@ -14,6 +14,7 @@ import * as getText from "./get_text"
 import * as getHtml from "./get_html"
 import * as find from "./find"
 import * as attrs from "./attrs"
+import * as outline from "./outline"
 import * as click from "./click"
 import * as type from "./type"
 import * as press from "./press"
@@ -22,6 +23,7 @@ import * as select from "./select"
 import * as fill from "./fill"
 import * as scroll from "./scroll"
 import * as history from "./history"
+import * as batch from "./batch"
 import * as reload from "./reload"
 import * as waitFor from "./wait_for"
 import * as evaluate from "./eval"
@@ -65,6 +67,10 @@ export function registerTools(router: Router, ctx: ToolContext) {
     timeoutMs: 5000,
     idempotent: true,
   })
+  router.register("browser.outline", (params, signal) => outline.run(params, ctx, signal), {
+    timeoutMs: 5000,
+    idempotent: true,
+  })
   router.register("browser.click", (params, signal) => click.run(params, ctx, signal), { timeoutMs: 5000 })
   router.register("browser.type", (params, signal) => type.run(params, ctx, signal), { timeoutMs: 8000 })
   router.register("browser.press", (params, signal) => press.run(params, ctx, signal), { timeoutMs: 3000 })
@@ -73,6 +79,7 @@ export function registerTools(router: Router, ctx: ToolContext) {
   router.register("browser.fill", (params, signal) => fill.run(params, ctx, signal), { timeoutMs: 8000 })
   router.register("browser.scroll", (params, signal) => scroll.run(params, ctx, signal), { timeoutMs: 5000 })
   router.register("browser.history", (params, signal) => history.run(params, ctx, signal), { timeoutMs: 10000 })
+  router.register("browser.batch", (params, signal) => batch.run(params, ctx, signal), { timeoutMs: 30000 })
   router.register("browser.reload", (params, signal) => reload.run(params, ctx, signal), { timeoutMs: 15000 })
   router.register("browser.wait_for", (params, signal) => waitFor.run(params, ctx, signal), {
     timeoutMs: 30000,
