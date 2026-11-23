@@ -238,6 +238,10 @@ export class UiHost {
   private unsupported = new Set<string>()
   private missing = new Set<string>()
   private storedKeys: Record<string, { key: string; baseURL: string }> = {}
+  // Instance directory per pending permission, captured from the SSE envelope.
+  // The server resolves an instance from `?directory=` or its own cwd, so a
+  // reply without the request's directory targets the wrong instance and 404s.
+  private permissionDirectories = new Map<string, string>()
 
   constructor(options: UiHostOptions) {
     this.workspace = path.resolve(options.workspace)
@@ -288,6 +292,7 @@ export class UiHost {
 
   close() {
     this.drafts.clear()
+    this.permissionDirectories.clear()
   }
 
   handle(message: WebviewMessage) {
@@ -370,11 +375,14 @@ export class UiHost {
         break
       }
       case "permission.asked":
-        this.emitPermissionAsked(data)
+        this.emitPermissionAsked(data, event.directory)
         break
       case "permission.replied": {
         const permissionID = str(data.requestID)
-        if (permissionID) this.send({ type: "permissionResolved", permissionID })
+        if (permissionID) {
+          this.permissionDirectories.delete(permissionID)
+          this.send({ type: "permissionResolved", permissionID })
+        }
         break
       }
       case "question.asked": {
@@ -737,9 +745,10 @@ export class UiHost {
     try {
       const approvedAlways = Array.isArray(message.approvedAlways) ? message.approvedAlways : []
       const deniedAlways = Array.isArray(message.deniedAlways) ? message.deniedAlways : []
+      const directory = this.permissionDirectoryArg(message.permissionId)
       if (approvedAlways.length > 0 || deniedAlways.length > 0) {
         if (!this.kilo.saveAlwaysRules) throw new Error("always-rules are not supported by the backend")
-        await this.kilo.saveAlwaysRules({ requestID: message.permissionId, approvedAlways, deniedAlways })
+        await this.kilo.saveAlwaysRules({ requestID: message.permissionId, approvedAlways, deniedAlways, ...directory })
       }
       if (!this.kilo.reply) throw new Error("permission reply is not supported by the backend")
       await this.kilo.reply({
@@ -747,7 +756,9 @@ export class UiHost {
         reply: message.response,
         message: message.feedback,
         interactive: true,
+        ...directory,
       })
+      this.permissionDirectories.delete(message.permissionId)
       this.send({ type: "permissionResolved", permissionID: message.permissionId })
     } catch (err) {
       this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "permissionResponse", error: errorText(err) } })
@@ -850,9 +861,8 @@ export class UiHost {
 
   private async forkSession(message: Extract<WebviewMessage, { type: "forkSession" }>) {
     try {
-      const fork = this.kilo.forkSession
-      if (!fork) throw new Error("Fork is unavailable")
-      const raw = await fork({ sessionID: message.sessionId, messageID: message.messageId })
+      if (!this.kilo.forkSession) throw new Error("Fork is unavailable")
+      const raw = await this.kilo.forkSession({ sessionID: message.sessionId, messageID: message.messageId })
       if (!isRecord(raw)) throw new Error("Fork failed")
       const session = sessionToWebview(raw)
       this.send({ type: "sessionCreated", session })
@@ -870,9 +880,12 @@ export class UiHost {
       ...(message.requestID !== undefined ? { requestID: message.requestID } : {}),
     }
     try {
-      const remove = this.kilo.deleteMessage
-      if (!remove) throw new Error("Delete is unavailable")
-      const removed = await remove({ sessionID: message.sessionID, messageID: message.messageID, queued: true })
+      if (!this.kilo.deleteMessage) throw new Error("Delete is unavailable")
+      const removed = await this.kilo.deleteMessage({
+        sessionID: message.sessionID,
+        messageID: message.messageID,
+        queued: true,
+      })
       this.send({ ...result, success: removed === true })
     } catch (err) {
       this.send({ type: "error", message: backendError(err, this.kilo.url), sessionID: message.sessionID })
@@ -946,9 +959,11 @@ export class UiHost {
   private async connectProvider(message: Extract<WebviewMessage, { type: "connectProvider" }>) {
     const { requestId, providerID, apiKey, metadata } = message
     try {
-      const set = this.kilo.authSet
-      if (!set) throw new Error("Provider actions are unavailable")
-      await set({ providerID, auth: metadata ? { type: "api", key: apiKey, metadata } : { type: "api", key: apiKey } })
+      if (!this.kilo.authSet) throw new Error("Provider actions are unavailable")
+      await this.kilo.authSet({
+        providerID,
+        auth: metadata ? { type: "api", key: apiKey, metadata } : { type: "api", key: apiKey },
+      })
       await this.kilo.disposeGlobal?.()
       await this.refreshProviders()
       this.send({ type: "providerConnected", requestId, providerID })
@@ -960,9 +975,8 @@ export class UiHost {
   private async authorizeProviderOAuth(message: Extract<WebviewMessage, { type: "authorizeProviderOAuth" }>) {
     const { requestId, providerID, method, inputs } = message
     try {
-      const authorize = this.kilo.oauthAuthorize
-      if (!authorize) throw new Error("Provider actions are unavailable")
-      const authorization = await authorize({ providerID, method, inputs })
+      if (!this.kilo.oauthAuthorize) throw new Error("Provider actions are unavailable")
+      const authorization = await this.kilo.oauthAuthorize({ providerID, method, inputs })
       if (!authorization) throw new Error("Failed to start provider authorization")
       this.send({
         type: "providerOAuthReady",
@@ -978,9 +992,8 @@ export class UiHost {
   private async completeProviderOAuth(message: Extract<WebviewMessage, { type: "completeProviderOAuth" }>) {
     const { requestId, providerID, method, code } = message
     try {
-      const callback = this.kilo.oauthCallback
-      if (!callback) throw new Error("Provider actions are unavailable")
-      await callback({ providerID, method, code })
+      if (!this.kilo.oauthCallback) throw new Error("Provider actions are unavailable")
+      await this.kilo.oauthCallback({ providerID, method, code })
       await this.kilo.disposeGlobal?.()
       await this.refreshProviders()
       this.send({ type: "providerConnected", requestId, providerID })
@@ -992,9 +1005,8 @@ export class UiHost {
   private async disconnectProvider(message: Extract<WebviewMessage, { type: "disconnectProvider" }>) {
     const { requestId, providerID } = message
     try {
-      const remove = this.kilo.authRemove
-      if (!remove) throw new Error("Provider actions are unavailable")
-      await remove({ providerID })
+      if (!this.kilo.authRemove) throw new Error("Provider actions are unavailable")
+      await this.kilo.authRemove({ providerID })
       await this.kilo.disposeGlobal?.()
       await this.refreshProviders()
       this.send({ type: "providerDisconnected", requestId, providerID })
@@ -1016,15 +1028,17 @@ export class UiHost {
       return
     }
     try {
-      const update = this.kilo.globalConfigUpdate
-      if (!update) throw new Error("Provider actions are unavailable")
+      if (!this.kilo.globalConfigUpdate) throw new Error("Provider actions are unavailable")
       const global = (await this.kilo.globalConfigGet?.()) as Record<string, unknown> | undefined
       const disabled = Array.isArray(global?.disabled_providers)
         ? (global.disabled_providers as string[]).filter((item) => item !== id.value)
         : undefined
       const existing = isRecord(global?.provider) ? (global.provider as Record<string, unknown>)[id.value] : undefined
       const patch = withCustomProviderDeletions(existing, clean.value)
-      await update({ provider: { [id.value]: patch }, ...(disabled ? { disabled_providers: disabled } : {}) })
+      await this.kilo.globalConfigUpdate({
+        provider: { [id.value]: patch },
+        ...(disabled ? { disabled_providers: disabled } : {}),
+      })
       if (apiKeyChanged) {
         const key = (apiKey ?? "").trim()
         if (key) await this.kilo.authSet?.({ providerID, auth: { type: "api", key } })
@@ -1149,10 +1163,11 @@ export class UiHost {
     this.send({ type: "partUpdated", sessionID, messageID: str(part.messageID) ?? "", part: part as unknown as Part })
   }
 
-  private emitPermissionAsked(data: Record<string, unknown>) {
+  private emitPermissionAsked(data: Record<string, unknown>, directory?: string) {
     const id = str(data.id)
     const sessionID = str(data.sessionID)
     if (!id || !sessionID) return
+    if (directory) this.permissionDirectories.set(id, directory)
     const reply = this.kilo.reply
     if (this.state.autoApprove && reply) {
       void this.autoApprovePermission(reply.bind(this.kilo), id, sessionID, data)
@@ -1178,18 +1193,25 @@ export class UiHost {
   }
 
   private async autoApprovePermission(
-    reply: (input: { requestID: string; reply: string }) => Promise<unknown>,
+    reply: (input: { requestID: string; reply: string; directory?: string }) => Promise<unknown>,
     requestID: string,
     sessionID: string,
     data: Record<string, unknown>,
   ) {
     try {
-      await reply({ requestID, reply: "once" })
+      await reply({ requestID, reply: "once", ...this.permissionDirectoryArg(requestID) })
+      this.permissionDirectories.delete(requestID)
       this.send({ type: "permissionResolved", permissionID: requestID })
     } catch (err) {
       this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "autoApprove", requestID, error: errorText(err) } })
       this.sendPermissionAsked(requestID, sessionID, data)
     }
+  }
+
+  /** Spread `directory` only when the permission's instance directory is known. */
+  private permissionDirectoryArg(requestID: string): { directory?: string } {
+    const directory = this.permissionDirectories.get(requestID)
+    return directory ? { directory } : {}
   }
 
   private async toggleAutoApprove() {
@@ -1213,7 +1235,8 @@ export class UiHost {
     for (const item of list) {
       if (!isRecord(item) || typeof item.id !== "string") continue
       try {
-        await this.kilo.reply({ requestID: item.id, reply: "once" })
+        await this.kilo.reply({ requestID: item.id, reply: "once", ...this.permissionDirectoryArg(item.id) })
+        this.permissionDirectories.delete(item.id)
         this.send({ type: "permissionResolved", permissionID: item.id })
       } catch (err) {
         this.log?.({ event: "ui.rpc.error", level: "warn", data: { type: "autoApprove", requestID: item.id, error: errorText(err) } })

@@ -1,0 +1,75 @@
+#kecam-panel {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2147483646;
+  width: 260px;
+  background: #ffffff;
+  color: #1c1e21;
+  border: 1px solid #ccd0d5;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+#kecam-panel .kecam-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #1877f2;
+  color: #fff;
+  font-weight: 600;
+  cursor: move;
+  user-select: none;
+}
+
+#kecam-panel.kecam-off .kecam-head {
+  background: #8a8d91;
+}
+
+#kecam-panel .kecam-body {
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+}
+
+#kecam-panel .kecam-body b {
+  font-weight: 600;
+}
+
+#kecam-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#kecam-toggle:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.kecam-note {
+  grid-column: 1 / -1;
+  color: #b26a00;
+}
+
+.kecam-vnd {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1px;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1.1;
+  color: #b26a00;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 2;
+}

@@ -67,6 +67,43 @@ test("merge preserves user keys, values, and ordering", async () => {
   }
 })
 
+test("existing mcp.browser is re-pointed at the current runtime and keeps its launcher", async () => {
+  const dir = await workspace()
+  const file = path.join(dir, ".kilo", "kilo.json")
+  const stale = path.join(os.tmpdir(), "other-workspace", ".kilo", "kilo-browser", "runtime.json")
+  const existing = {
+    mcp: {
+      browser: {
+        type: "local",
+        command: ["bun", "/opt/kilo-browser/dist/mcp/main.js", "--runtime", stale],
+        environment: { KILO_BROWSER_RUNTIME: stale, KEEP: "1" },
+        enabled: true,
+        timeout: 30000,
+      },
+    },
+  }
+  await Bun.write(file, `${JSON.stringify(existing, null, 2)}\n`)
+  try {
+    const result = await generateKiloConfig({ workspace: dir })
+    const browser = (result.config.mcp as Record<string, Record<string, unknown>>).browser!
+    const runtime = path.join(dir, ".kilo", "kilo-browser", "runtime.json")
+    const command = browser.command as string[]
+    expect(command.slice(0, 2)).toEqual(["bun", "/opt/kilo-browser/dist/mcp/main.js"])
+    expect(command.slice(-2)).toEqual(["--runtime", runtime])
+    expect(command).not.toContain(stale)
+    const environment = browser.environment as Record<string, string>
+    expect(environment.KILO_BROWSER_RUNTIME).toBe(runtime)
+    expect(environment.KEEP).toBe("1")
+    expect(browser.timeout).toBe(30000)
+    expect(result.changed).toBe(true)
+
+    const second = await generateKiloConfig({ workspace: dir })
+    expect(second.changed).toBe(false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("generation is idempotent and does not rewrite an already merged file", async () => {
   const dir = await workspace()
   try {

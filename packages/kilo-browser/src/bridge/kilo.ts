@@ -22,6 +22,7 @@ export type AlwaysRulesInput = {
   requestID: string
   approvedAlways: string[]
   deniedAlways: string[]
+  directory?: string
 }
 
 export type AuthProviderInput = {
@@ -67,7 +68,7 @@ export type KiloBackend = {
   questionReject?: (input: { requestID: string }) => Promise<unknown>
   status?: () => Promise<unknown>
   permissions?: (directory: string) => Promise<unknown>
-  reply?: (input: { requestID: string; reply: string; message?: string; interactive?: boolean }) => Promise<unknown>
+  reply?: (input: { requestID: string; reply: string; message?: string; interactive?: boolean; directory?: string }) => Promise<unknown>
   saveAlwaysRules?: (input: AlwaysRulesInput) => Promise<unknown>
   authSet?: (input: AuthProviderInput) => Promise<unknown>
   authRemove?: (input: { providerID: string }) => Promise<unknown>
@@ -230,15 +231,15 @@ export class KiloClient implements KiloBackend {
     return this.request(`/permission?${query}`)
   }
 
-  async reply(input: { requestID: string; reply: string; message?: string; interactive?: boolean }) {
-    return this.request(`/permission/${encodeURIComponent(input.requestID)}/reply`, {
+  async reply(input: { requestID: string; reply: string; message?: string; interactive?: boolean; directory?: string }) {
+    return this.request(`/permission/${encodeURIComponent(input.requestID)}/reply${directoryQuery(input.directory)}`, {
       method: "POST",
       body: JSON.stringify({ reply: input.reply, message: input.message, interactive: input.interactive }),
     })
   }
 
   async saveAlwaysRules(input: AlwaysRulesInput) {
-    return this.request(`/permission/${encodeURIComponent(input.requestID)}/always-rules`, {
+    return this.request(`/permission/${encodeURIComponent(input.requestID)}/always-rules${directoryQuery(input.directory)}`, {
       method: "POST",
       body: JSON.stringify({ approvedAlways: input.approvedAlways, deniedAlways: input.deniedAlways }),
     })

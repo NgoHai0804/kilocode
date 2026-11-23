@@ -6,6 +6,10 @@ import markdownWorkerUrl from "../../../ui/src/components/markdown-shiki.worker.
 import dotlottieWasmUrl from "@lottiefiles/dotlottie-web/dist/dotlottie-player.wasm?url"
 
 function asset(path: string): string {
+  // Vite emits `?url`/`?worker&url` assets as absolute URLs resolved against the
+  // importing chunk (e.g. `chrome-extension://<id>/ui-dist/assets/x.wasm`). Only
+  // rewrite relative paths; prefixing an already-absolute URL doubles the origin.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path
   return chrome.runtime.getURL(path.replace(/^\.?\//, ""))
 }
 

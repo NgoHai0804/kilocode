@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="dot"></span>
+        <h1>Ke Cam</h1>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="enabled" />
+        <span class="slider"></span>
+      </label>
+    </header>
+    <p class="state" id="stateText">Đang tạm dừng</p>
+
+    <div class="savebar">
+      <button id="save" class="primary">Lưu cài đặt</button>
+      <span class="saved" id="savedText"></span>
+    </div>
+
+    <section class="card">
+      <div class="field">
+        <label for="rate">Tỷ giá</label>
+        <div class="input-unit">
+          <input type="number" id="rate" min="1" step="1" />
+          <span>đ / 1 $</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="intervalSec">Chu kỳ kiểm tra</label>
+        <div class="input-unit">
+          <input type="number" id="intervalSec" min="5" step="1" />
+          <span>giây</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="autoOff">Tự động tắt khi vi phạm</label>
+        <label class="switch"><input type="checkbox" id="autoOff" /><span class="slider"></span></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Điều kiện tắt</h2>
+        <button id="addRule" class="ghost">+ Thêm quy tắc</button>
+      </div>
+      <div id="rules"></div>
+      <p class="hint">Đọc số liệu trực tiếp từ API (không cần cuộn). Nhóm quảng cáo <b>đang bật</b> thoả quy tắc sẽ bị tự tắt.</p>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

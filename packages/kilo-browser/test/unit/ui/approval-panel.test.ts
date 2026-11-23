@@ -7,7 +7,7 @@ import type { BridgeEvent, KiloBackend } from "../../../src/bridge/kilo"
 import type { UiMessage } from "../../../src/bridge/ui-ws"
 import type { WebviewMessage } from "@kilo-webview/src/types/messages"
 
-type ReplyCall = { requestID: string; reply: string; message?: string; interactive?: boolean }
+type ReplyCall = { requestID: string; reply: string; message?: string; interactive?: boolean; directory?: string }
 
 function fakeKilo(replies: ReplyCall[]) {
   const backend: KiloBackend = {
@@ -147,6 +147,37 @@ test("a failed reply surfaces permissionError for the dock", async () => {
     await rm(workspace, { recursive: true, force: true })
   }
 })
+test("replies with the permission's instance directory so the backend finds it", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-approval-"))
+  const replies: ReplyCall[] = []
+  const saves: Array<Record<string, unknown>> = []
+  const sent: UiMessage[] = []
+  const backend = fakeKilo(replies)
+  backend.saveAlwaysRules = async (input) => {
+    saves.push(input as unknown as Record<string, unknown>)
+    return {}
+  }
+  const host = new UiHost({ workspace, kilo: backend })
+  host.bind((message) => sent.push(message))
+  try {
+    host.event({ ...asked(), directory: "D:\\elsewhere\\project" })
+    const response: WebviewMessage = {
+      type: "permissionResponse",
+      permissionId: "per_1",
+      sessionID: "ses_1",
+      response: "once",
+      approvedAlways: ["git *"],
+      deniedAlways: [],
+    }
+    host.handle(response)
+    await waitFor(() => replies.length === 1)
+    expect(replies[0]!.directory).toBe("D:\\elsewhere\\project")
+    expect(saves[0]!.directory).toBe("D:\\elsewhere\\project")
+  } finally {
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
 test("saves always-rules before replying so per-rule approvals persist", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "kilo-browser-approval-"))
   const order: string[] = []

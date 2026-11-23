@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Ke Cam - Quản lý nhóm quảng cáo",
+  "version": "1.2.0",
+  "description": "Theo dõi và tự tắt nhóm quảng cáo theo ngưỡng chi tiêu (VND).",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://adsmanager.facebook.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Ke Cam"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://adsmanager.facebook.com/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://adsmanager.facebook.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

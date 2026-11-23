@@ -1,0 +1,5 @@
+{
+  "$schema": "https://kilo.ai/schemas/kilo-browser.json",
+  "bridge": { "port": 7373 },
+  "browser": { "allowedExtensionIds": [] }
+}

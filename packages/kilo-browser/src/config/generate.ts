@@ -61,6 +61,8 @@ export async function generateKiloConfig(options: GenerateOptions): Promise<Gene
       enabled: true,
       timeout: 60000,
     }
+  } else {
+    repointBrowserMcp(config.mcp.browser, runtime, options.mcpCommand)
   }
 
   const after = JSON.stringify(config)
@@ -122,6 +124,29 @@ export function defaultMcpCommand(): string[] {
   const source = path.join(root, "src", "mcp", "main.ts")
   return [process.execPath, source]
 }
+
+/**
+ * Re-point an existing `mcp.browser` entry at the current runtime file. The entry
+ * is generated only once, so a bridge started from a different workspace (or a
+ * copied `.kilo/kilo.json`) would otherwise keep a stale `--runtime` path and the
+ * MCP shim would read a dead runtime and fail with ECONNREFUSED. Keep whatever
+ * launcher is configured; only fix the path argument and the environment key.
+ */
+function repointBrowserMcp(entry: unknown, runtime: string, mcpCommand?: string[]) {
+  if (!isRecord(entry)) return
+  const command = Array.isArray(entry.command) ? entry.command : undefined
+  if (command) {
+    const index = command.indexOf("--runtime")
+    if (index >= 0) command[index + 1] = runtime
+    else command.push("--runtime", runtime)
+  } else {
+    entry.command = [...(mcpCommand ?? defaultMcpCommand()), "--runtime", runtime]
+  }
+  const environment = isRecord(entry.environment) ? entry.environment : {}
+  environment.KILO_BROWSER_RUNTIME = runtime
+  entry.environment = environment
+}
+
 
 function packageRoot() {
   let dir = import.meta.dir
